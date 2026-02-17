@@ -45,3 +45,8 @@ temperature: 0.01
 
 # Optional: Custom API base URL (e.g. Azure, OpenAI-compatible proxies).
 api_base: ""
+
+# Optional: Use structured JSON output when the provider supports it (e.g. OpenAI response_format).
+# When true, requests JSON like {"scores": [5, 4, 3, ...]} for more reliable parsing.
+# Falls back to text-based parsing if structured output fails or is unsupported.
+use_structured_output: false

@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import time
@@ -88,6 +89,7 @@ def _llm_completion(
     api_key=None,
     api_base=None,
     delay=1,
+    use_structured_output=False,
 ):
     """Call LiteLLM completion. Supports any provider (OpenAI, Anthropic, Gemini, etc.)."""
     time.sleep(delay)
@@ -101,6 +103,8 @@ def _llm_completion(
         kwargs["api_key"] = api_key
     if api_base:
         kwargs["base_url"] = api_base
+    if use_structured_output:
+        kwargs["response_format"] = {"type": "json_object"}
     if messages is not None:
         kwargs["messages"] = messages
     elif prompt is not None:
@@ -135,6 +139,7 @@ def chat(
     api_key=None,
     api_base=None,
     delay=1,
+    use_structured_output=False,
 ):
     """Chat completion for any LiteLLM-supported model (GPT, Claude, Gemini, etc.)."""
     return _llm_completion(
@@ -146,6 +151,7 @@ def chat(
         api_key=api_key,
         api_base=api_base,
         delay=delay,
+        use_structured_output=use_structured_output,
     )
 
 
@@ -159,6 +165,7 @@ def completion(
     api_key=None,
     api_base=None,
     delay=1,
+    use_structured_output=False,
 ):
     """Text completion for legacy models (text-davinci-003, etc.)."""
     return _llm_completion(
@@ -170,18 +177,55 @@ def completion(
         api_key=api_key,
         api_base=api_base,
         delay=delay,
+        use_structured_output=use_structured_output,
     )
 
 
-def convert_results(result, column_header):
-    result = result.strip()  # Remove leading and trailing whitespace
-    try:
-        result_list = [int(element.strip()[-1]) for element in result.split('\n') if element.strip()]
-    except Exception:
-        result_list = ["" for element in result.split('\n')]
+def convert_results(result: str, column_header: str) -> list:
+    """Parse text response in 'index: score' format into a list of integer scores."""
+    result = result.strip()
+    result_list = []
+    for element in result.split("\n"):
+        element = element.strip()
+        if not element:
+            continue
+        try:
+            # Format "index: score" or "1: 5" - take the part after the last colon for robustness
+            if ":" in element:
+                score_str = element.rsplit(":", 1)[-1].strip()
+                result_list.append(int(score_str))
+            else:
+                result_list.append(int(element))
+        except (ValueError, IndexError):
+            result_list.append("")
+    if not result_list:
         logger.warning("Unable to capture the responses on {}.", column_header)
-
     return result_list
+
+
+def convert_results_from_json(result: str, column_header: str) -> list | None:
+    """Parse JSON response {"scores": [5, 4, 3, ...]} into a list of integer scores. Returns None on failure."""
+    result = result.strip()
+    # Handle multiple JSON objects (one per batch) concatenated by newlines
+    all_scores = []
+    for block in result.split("\n"):
+        block = block.strip()
+        if not block:
+            continue
+        try:
+            parsed = json.loads(block)
+            if isinstance(parsed, dict) and "scores" in parsed:
+                scores = parsed["scores"]
+                if isinstance(scores, list):
+                    for s in scores:
+                        all_scores.append(int(s) if s != "" else "")
+                else:
+                    return None
+            else:
+                return None
+        except (json.JSONDecodeError, ValueError, TypeError):
+            return None
+    return all_scores if all_scores else None
 
 
 def example_generator(questionnaire, run):
@@ -194,6 +238,7 @@ def example_generator(questionnaire, run):
     _validate_model_litellm(model)
 
     api_base = getattr(run, "api_base", None) or ""
+    use_structured_output = getattr(run, "use_structured_output", False) or False
 
     # Read the existing CSV file into a pandas DataFrame
     df = pd.read_csv(testing_file)
@@ -241,19 +286,35 @@ def example_generator(questionnaire, run):
                             if api_base:
                                 api_kw["api_base"] = api_base
 
-                            if use_text_completion:
-                                inner_setting = questionnaire["inner_setting"].replace(
-                                    'Format: "index: score"', 'Format: "index: score\\\n"'
+                            if use_structured_output:
+                                structured_instruction = (
+                                    ' Output only a valid JSON object with a "scores" array containing '
+                                    'one integer per statement in the same order. Example: {"scores": [5, 4, 3]}.'
                                 )
-                                inputs = inner_setting + questionnaire["prompt"] + "\n" + questions_string
-                                result = completion(model, inputs, **api_kw)
+                                inner_setting_content = (
+                                    questionnaire["inner_setting"].rstrip(". ") + "." + structured_instruction
+                                )
+                            else:
+                                inner_setting_content = questionnaire["inner_setting"]
+
+                            if use_text_completion:
+                                if not use_structured_output:
+                                    inner_setting_content = inner_setting_content.replace(
+                                        'Format: "index: score"', 'Format: "index: score\\\n"'
+                                    )
+                                inputs = inner_setting_content + questionnaire["prompt"] + "\n" + questions_string
+                                result = completion(
+                                    model, inputs, **api_kw, use_structured_output=use_structured_output
+                                )
                             else:
                                 # Chat models: GPT, Claude, Gemini, Llama, etc.
                                 inputs = previous_records + [
-                                    {"role": "system", "content": questionnaire["inner_setting"]},
+                                    {"role": "system", "content": inner_setting_content},
                                     {"role": "user", "content": questionnaire["prompt"] + "\n" + questions_string},
                                 ]
-                                result = chat(model, inputs, **api_kw)
+                                result = chat(
+                                    model, inputs, **api_kw, use_structured_output=use_structured_output
+                                )
                                 previous_records.append({
                                     "role": "user",
                                     "content": questionnaire["prompt"] + "\n" + questions_string,
@@ -281,9 +342,22 @@ def example_generator(questionnaire, run):
                             with open(responses_path, "a") as file:
                                 file.write(f'{result}\n====\n')
 
-                        result_string = '\n'.join(result_string_list)
+                        result_string = "\n".join(result_string_list)
 
-                        result_list = convert_results(result_string, column_header)
+                        if use_structured_output:
+                            parsed = convert_results_from_json(result_string, column_header)
+                            result_list = (
+                                parsed
+                                if parsed is not None
+                                else convert_results(result_string, column_header)
+                            )
+                            if parsed is None:
+                                logger.debug(
+                                    "Structured output parse failed for {}, falling back to text parsing.",
+                                    column_header,
+                                )
+                        else:
+                            result_list = convert_results(result_string, column_header)
 
                         try:
                             if column_header in df.columns:
