@@ -114,6 +114,9 @@ venv.bak/
 # Rope project settings
 .ropeproject
 
+# Cursor
+.cursor/
+
 # mkdocs documentation
 /site
 
