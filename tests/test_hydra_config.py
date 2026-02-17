@@ -17,6 +17,9 @@ from utils import run_psychobench
 # Config path relative to this test file (tests/test_hydra_config.py) -> ../conf
 CONFIG_PATH = "../conf"
 CONFIG_NAME = "config"
+# Project root and path to config file (single source of truth for allowed_providers etc.)
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CONFIG_FILE = os.path.join(_ROOT, "conf", "config.yaml")
 
 
 class TestComposeAPI:
@@ -37,7 +40,9 @@ class TestComposeAPI:
         assert hasattr(cfg, "allowed_providers")
         assert cfg.mode == "auto"
         assert cfg.significance_level == 0.01
-        assert list(cfg.allowed_providers) == ["gemini", "anthropic", "openai"]
+        # allowed_providers must match conf/config.yaml (no hardcoded list)
+        expected = OmegaConf.load(CONFIG_FILE)
+        assert list(cfg.allowed_providers) == list(expected.allowed_providers)
         assert OmegaConf.is_config(cfg)
 
     def test_compose_overrides_apply(self):

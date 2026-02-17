@@ -9,16 +9,18 @@ hydra:
 #   - openai/gpt-3.5-turbo, openai/gpt-4, openai/gpt-4o
 #   - anthropic/claude-3-opus-20240229, anthropic/claude-3-5-sonnet
 #   - gemini/gemini-pro, gemini/gemini-1.5-flash
-model: openai/gpt-3.5-turbo
+#   - ollama/llama2, ollama/llama3.2 (local; no API key needed)
+model: ollama/deepseek-r1:latest
 
-# Allowed LiteLLM provider prefixes. Model must start with one of these (e.g. openai/..., anthropic/..., gemini/...).
+# Allowed LiteLLM provider prefixes. Model must start with one of these (e.g. openai/..., anthropic/..., gemini/..., ollama/...).
 allowed_providers:
   - gemini
   - anthropic
   - openai
+  - ollama
 
 # Comma-separated list of questionnaires, or ALL.
-questionnaire: ALL
+questionnaire: BFI
 
 # Number of question orders: 0 = original only; n > 0 = original + n permutations.
 shuffle_count: 1
@@ -37,7 +39,7 @@ mode: auto
 
 # Sampling temperature for LLM calls (0 = deterministic; 1 = more random).
 # Some models (e.g. Gemini 3) recommend temperature=1.0; override per run if needed.
-temperature: 0
+temperature: 0.01
 
 # LiteLLM reads API keys from environment variables (e.g. OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY).
 

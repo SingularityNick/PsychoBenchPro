@@ -6,7 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- **Multi-provider LLM support**: Model must use a provider prefix (e.g. `openai/gpt-4`, `anthropic/claude-3-5-sonnet`, `gemini/gemini-2.0-flash`). Config option `allowed_providers` (default: `gemini`, `anthropic`, `openai`) restricts which providers can be used. Validation runs at startup so invalid or unsupported models fail fast.
+- **Multi-provider LLM support**: Model must use a provider prefix (e.g. `openai/gpt-4`, `anthropic/claude-3-5-sonnet`, `gemini/gemini-2.0-flash`, `ollama/llama2`). Config option `allowed_providers` (default: `gemini`, `anthropic`, `openai`, `ollama`) restricts which providers can be used. Validation runs at startup so invalid or unsupported models fail fast.
+- **Ollama provider**: Support for local models via [Ollama](https://ollama.ai/) using the `ollama/` prefix (e.g. `ollama/llama2`, `ollama/deepseek-r1:latest`). No API key required when using Ollama.
 - **Model name for file naming**: Response and prompt filenames use the model name without the provider prefix (e.g. `gpt-4-BFI-shuffle0.txt`) for cleaner output.
 - **Optional custom API base**: Config option `api_base` for custom endpoints (e.g. Azure, OpenAI-compatible proxies); empty by default.
 - **`.env.example`**: Example file with placeholders for `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `GEMINI_API_KEY`; copy to `.env` and fill in keys (LiteLLM reads from environment).
