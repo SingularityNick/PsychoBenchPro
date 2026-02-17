@@ -1,8 +1,20 @@
 name: Tests
 on:
   pull_request:
+    paths-ignore:
+      - 'README*'
+      - 'CHANGELOG*'
+      - 'CHANGELOG.md'
+      - 'docs/**'
+      - '**.md'
   push:
     branches: [main]
+    paths-ignore:
+      - 'README*'
+      - 'CHANGELOG*'
+      - 'CHANGELOG.md'
+      - 'docs/**'
+      - '**.md'
 jobs:
   test:
     runs-on: ubuntu-latest
