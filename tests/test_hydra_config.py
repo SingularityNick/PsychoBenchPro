@@ -116,9 +116,9 @@ class TestRunPsychobenchWithComposedConfig:
         questionnaire, run = calls[0]
         assert questionnaire["name"] == "BFI"
         assert run.model == "openai/test-model"
-        assert run.testing_file == "results/openai/test-model-BFI.csv"
-        assert run.results_file == "results/openai/test-model-BFI.md"
-        assert run.figures_file == "openai/test-model-BFI.png"
+        assert run.testing_file == "results/test-model-BFI.csv"
+        assert run.results_file == "results/test-model-BFI.md"
+        assert run.figures_file == "test-model-BFI.png"
 
     def test_run_psychobench_mode_generation_only_creates_testfile(
         self, tmp_path, monkeypatch
@@ -157,7 +157,7 @@ class TestRunPsychobenchWithComposedConfig:
 
         run_psychobench(cfg, mock_generator)
 
-        csv_path = tmp_path / "results" / "openai" / "test-gen-BFI.csv"
+        csv_path = tmp_path / "results" / "test-gen-BFI.csv"
         assert csv_path.exists()
         content = csv_path.read_text()
         assert "Prompt:" in content

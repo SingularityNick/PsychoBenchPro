@@ -33,6 +33,14 @@ def _provider_prefix(model: str) -> str | None:
     return None
 
 
+def _model_name_for_files(model: str) -> str:
+    """Return model string with provider prefix removed, for use in file/dir names."""
+    m = (model or "").strip()
+    if "/" in m:
+        return m.split("/", 1)[1]
+    return m
+
+
 def _provider_from_model(model: str) -> str:
     """Map provider prefix to API key attribute: gemini -> google, anthropic -> anthropic, openai -> openai."""
     prefix = _provider_prefix(model)
@@ -191,7 +199,7 @@ def convert_results(result, column_header):
 def example_generator(questionnaire, run):
     testing_file = run.testing_file
     model = run.model
-    records_file = run.name_exp if run.name_exp is not None else model
+    records_file = run.name_exp if run.name_exp is not None else _model_name_for_files(model)
 
     allowed = getattr(run, "allowed_providers", None) or ["gemini", "anthropic", "openai"]
     _validate_model_provider(model, allowed)
