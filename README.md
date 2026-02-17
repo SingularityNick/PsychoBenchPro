@@ -52,19 +52,19 @@ python run_psychobench.py \
 ## 🧪 Tests
 Unit tests use **pytest** and cover core logic in `utils.py` and `example_generator.py` (e.g. `get_questionnaire`, `convert_data`, `compute_statistics`, `hypothesis_testing`, `parsing`, `convert_results`).
 
-**Install dependencies** (runtime deps are in `requirements.txt`; dev deps include them):
+**Install dependencies** (managed by uv):
 ```bash
-pip install -r requirements-dev.txt
+uv sync --dev
 ```
 
 **Run all tests (from the project root):**
 ```bash
-pytest tests/ -v
+uv run pytest tests/ -v
 ```
 
 **Run with coverage:**
 ```bash
-pytest tests/ -v --cov=utils --cov=example_generator
+uv run pytest tests/ -v --cov=utils --cov=example_generator
 ```
 
 ## 🔧 Argument Specification

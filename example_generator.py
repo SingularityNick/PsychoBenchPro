@@ -1,6 +1,7 @@
 import openai
 import os
 import pandas as pd
+from loguru import logger
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -63,10 +64,10 @@ def convert_results(result, column_header):
     result = result.strip()  # Remove leading and trailing whitespace
     try:
         result_list = [int(element.strip()[-1]) for element in result.split('\n') if element.strip()]
-    except:
+    except Exception:
         result_list = ["" for element in result.split('\n')]
-        print(f"Unable to capture the responses on {column_header}.")
-        
+        logger.warning("Unable to capture the responses on {}.", column_header)
+
     return result_list
 
 
@@ -148,8 +149,8 @@ def example_generator(questionnaire, args):
                                 df.insert(i + insert_count + 1, column_header, result_list)
                                 insert_count += 1
                             break
-                        except:
-                            print(f"Unable to capture the responses on {column_header}.")
+                        except Exception:
+                            logger.warning("Unable to capture the responses on {}.", column_header)
 
                     # Write the updated DataFrame back to the CSV file
                     df.to_csv(testing_file, index=False)
