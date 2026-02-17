@@ -1,4 +1,5 @@
 import os
+import re
 import time
 
 import litellm
@@ -11,56 +12,112 @@ from tenacity import (
 )
 from tqdm import tqdm
 
+# Models that use prompt-based completion (legacy OpenAI text models).
+# All other models (GPT chat, Claude, Gemini, etc.) use chat with messages.
+TEXT_COMPLETION_MODEL_PATTERN = re.compile(
+    r"^(openai/)?(text-(davinci|curie|babbage|ada)-\d{3})(\b|$)",
+    re.IGNORECASE,
+)
+
+
+def _is_text_completion_model(model: str) -> bool:
+    """Return True if model uses prompt-based completion (not chat messages)."""
+    return bool(TEXT_COMPLETION_MODEL_PATTERN.search(model))
+
+
+def _llm_completion(
+    model: str,
+    *,
+    messages=None,
+    prompt=None,
+    temperature=0,
+    n=1,
+    max_tokens=1024,
+    api_key=None,
+    api_base=None,
+    delay=1,
+):
+    """Call LiteLLM completion. Supports any provider (OpenAI, Anthropic, Gemini, etc.)."""
+    time.sleep(delay)
+    kwargs = {
+        "model": model,
+        "temperature": temperature,
+        "n": n,
+        "max_tokens": max_tokens,
+    }
+    if api_key:
+        kwargs["api_key"] = api_key
+    if api_base:
+        kwargs["base_url"] = api_base
+    if messages is not None:
+        kwargs["messages"] = messages
+    elif prompt is not None:
+        kwargs["prompt"] = prompt
+    else:
+        raise ValueError("Either messages or prompt must be provided")
+
+    response = litellm.completion(**kwargs)
+    # Chat models return message.content; text completion models return .text
+    if n == 1:
+        choice = response.choices[0]
+        if hasattr(choice, "message") and choice.message is not None:
+            return choice.message.content or ""
+        return getattr(choice, "text", "") or ""
+    choices = response.choices
+    choices.sort(key=lambda x: x.index)
+    return [
+        (c.message.content if hasattr(c, "message") and c.message else None)
+        or getattr(c, "text", "")
+        for c in choices
+    ]
+
 
 @retry(wait=wait_random_exponential(min=1, max=60), stop=stop_after_attempt(6))
 def chat(
-    model,                      # gpt-4, gpt-4-0314, gpt-4-32k, gpt-4-32k-0314, gpt-3.5-turbo, gpt-3.5-turbo-0301
-    messages,                   # [{"role": "system"/"user"/"assistant", "content": "Hello!", "name": "example"}]
-    temperature=0,    # [0, 2]: Lower values -> more focused and deterministic; Higher values -> more random.
-    n=1,                        # Chat completion choices to generate for each input message.
-    max_tokens=1024,            # The maximum number of tokens to generate in the chat completion.
-    delay=1           # Seconds to sleep after each request.
+    model,
+    messages,
+    temperature=0,
+    n=1,
+    max_tokens=1024,
+    api_key=None,
+    api_base=None,
+    delay=1,
 ):
-    time.sleep(delay)
-    response = litellm.completion(
-        model=model,
+    """Chat completion for any LiteLLM-supported model (GPT, Claude, Gemini, etc.)."""
+    return _llm_completion(
+        model,
         messages=messages,
         temperature=temperature,
         n=n,
-        max_tokens=max_tokens
+        max_tokens=max_tokens,
+        api_key=api_key,
+        api_base=api_base,
+        delay=delay,
     )
-    if n == 1:
-        return response.choices[0].message.content
-    else:
-        return [i.message.content for i in response.choices]
+
 
 @retry(wait=wait_random_exponential(min=1, max=60), stop=stop_after_attempt(6))
 def completion(
-    model,           # text-davinci-003, text-davinci-002, text-curie-001, text-babbage-001, text-ada-001
-    prompt,          # The prompt(s) to generate completions for, encoded as a string,
-                     # array of strings, array of tokens, or array of token arrays.
-    temperature=0,   # [0, 2]: Lower values -> more focused and deterministic; Higher values -> more random.
-    n=1,             # Completions to generate for each prompt.
-    max_tokens=1024, # The maximum number of tokens to generate in the chat completion.
-    delay=1         # Seconds to sleep after each request.
+    model,
+    prompt,
+    temperature=0,
+    n=1,
+    max_tokens=1024,
+    api_key=None,
+    api_base=None,
+    delay=1,
 ):
-    time.sleep(delay)
-
-    # LiteLLM uses completion() for text completion models
-    response = litellm.completion(
-        model=model,
+    """Text completion for legacy models (text-davinci-003, etc.)."""
+    return _llm_completion(
+        model,
         prompt=prompt,
         temperature=temperature,
         n=n,
-        max_tokens=max_tokens
+        max_tokens=max_tokens,
+        api_key=api_key,
+        api_base=api_base,
+        delay=delay,
     )
-
-    if n == 1:
-        return response.choices[0].text
-    else:
-        choices = response.choices
-        choices.sort(key=lambda x: x.index)
-        return [choice.text for choice in choices]
 
 
 def convert_results(result, column_header):
@@ -79,10 +136,12 @@ def example_generator(questionnaire, run):
     model = run.model
     records_file = run.name_exp if run.name_exp is not None else model
 
-    # Set API key for LiteLLM (supports OpenAI and other providers)
-    if run.openai_key:
-        os.environ["OPENAI_API_KEY"] = run.openai_key
-        litellm.api_key = run.openai_key
+    # Resolve API key: api_key overrides, then openai_key, then rely on env vars
+    api_key = getattr(run, "api_key", None) or run.openai_key
+    api_base = getattr(run, "api_base", None) or ""
+    if api_key:
+        os.environ.setdefault("OPENAI_API_KEY", api_key)
+        litellm.api_key = api_key
 
     # Read the existing CSV file into a pandas DataFrame
     df = pd.read_csv(testing_file)
@@ -123,26 +182,32 @@ def example_generator(questionnaire, run):
                         previous_records = []
 
                         for questions_string in questions_list:
-                            result = ''
-                            if model == 'text-davinci-003':
+                            result = ""
+                            use_text_completion = _is_text_completion_model(model)
+                            api_kw = {}
+                            if api_key:
+                                api_kw["api_key"] = api_key
+                            if api_base:
+                                api_kw["api_base"] = api_base
+
+                            if use_text_completion:
                                 inner_setting = questionnaire["inner_setting"].replace(
-                                    'Format: \"index: score\"', 'Format: \"index: score\\\n\"'
+                                    'Format: "index: score"', 'Format: "index: score\\\n"'
                                 )
-                                inputs = inner_setting + questionnaire["prompt"] + '\n' + questions_string
-                                result = completion(model, inputs)
-                            elif model.startswith("gpt"):
+                                inputs = inner_setting + questionnaire["prompt"] + "\n" + questions_string
+                                result = completion(model, inputs, **api_kw)
+                            else:
+                                # Chat models: GPT, Claude, Gemini, Llama, etc.
                                 inputs = previous_records + [
                                     {"role": "system", "content": questionnaire["inner_setting"]},
-                                    {"role": "user", "content": questionnaire["prompt"] + '\n' + questions_string}
+                                    {"role": "user", "content": questionnaire["prompt"] + "\n" + questions_string},
                                 ]
-                                result = chat(model, inputs)
+                                result = chat(model, inputs, **api_kw)
                                 previous_records.append({
                                     "role": "user",
-                                    "content": questionnaire["prompt"] + '\n' + questions_string
+                                    "content": questionnaire["prompt"] + "\n" + questions_string,
                                 })
                                 previous_records.append({"role": "assistant", "content": result})
-                            else:
-                                raise ValueError("The model is not supported or does not exist.")
 
                             result_string_list.append(result.strip())
 

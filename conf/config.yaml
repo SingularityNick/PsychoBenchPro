@@ -5,7 +5,11 @@ hydra:
   run:
     dir: results/${now:%Y-%m-%d}/${now:%H-%M-%S}
 
-# Model to test (e.g. text-davinci-003, gpt-3.5-turbo, gpt-4).
+# Model to test. Use any LiteLLM model string, e.g.:
+#   - openai/gpt-3.5-turbo, gpt-4, gpt-4o
+#   - anthropic/claude-3-opus-20240229, claude-3-5-sonnet
+#   - gemini/gemini-pro, google/gemini-1.5-flash
+#   - azure/gpt-4 (requires api_base), openrouter/anthropic/claude-3-opus
 model: gpt-3.5-turbo
 
 # Comma-separated list of questionnaires, or ALL.
@@ -26,6 +30,15 @@ significance_level: 0.01
 # Pipeline mode: auto (full), generation, testing, or analysis.
 mode: auto
 
-# API key for LLM provider (OpenAI by default). Defaults to OPENAI_API_KEY env var; override via config or CLI.
-# This project uses LiteLLM, which supports OpenAI and many other providers.
+# API key for LLM provider. Override via config or CLI.
+# For OpenAI: defaults to OPENAI_API_KEY env var.
+# For other providers, set the appropriate env (e.g. ANTHROPIC_API_KEY, GEMINI_API_KEY)
+# or pass api_key to override for the run.
 openai_key: ${oc.env:OPENAI_API_KEY,""}
+
+# Optional: Generic API key override. When set, used for the LLM call regardless of provider.
+# Useful when using a single key (e.g. OpenRouter) or to override env vars.
+api_key: ${oc.env:LITELLM_API_KEY,""}
+
+# Optional: Custom API base URL (e.g. Azure, OpenAI-compatible proxies).
+api_base: ""
