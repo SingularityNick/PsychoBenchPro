@@ -34,6 +34,15 @@ Set API keys via environment variables (e.g. `OPENAI_API_KEY`, `ANTHROPIC_API_KE
 ## Configuration
 Configuration is driven by [Hydra](https://hydra.cc/). Defaults live in `conf/config.yaml`. You can override any option from the command line (e.g. `model=openai/gpt-4`, `questionnaire=BFI,EPQ-R`). Outputs are written into timestamped directories under `results/` (e.g. `results/2025-02-17/14-30-45/`) so each run gets its own folder.
 
+### Benchmark config (multirun over multiple models)
+To run the same pipeline over several models without listing them on the CLI, use the **benchmark** config. It runs a Hydra multirun over the models defined in `conf/benchmark.yaml`:
+
+```bash
+uv run python run_psychobench.py --config-name benchmark
+```
+
+To change which models are included, edit `conf/benchmark.yaml` and update the `hydra.sweeper.params.model` list. You can also run a one-off multirun from the CLI with the `-m` flag, e.g. `uv run python run_psychobench.py -m model=openai/gpt-4,anthropic/claude-3-5-sonnet`.
+
 ✨An example result:
 | Category | gpt-4 (n = 10) | Male (n = 693) | Female (n = 878) |
 | :---: | :---: | :---: | :---: |
