@@ -38,8 +38,10 @@ class TestComposeAPI:
         assert hasattr(cfg, "mode")
         assert hasattr(cfg, "api_base")
         assert hasattr(cfg, "allowed_providers")
+        assert hasattr(cfg, "use_structured_output")
         assert cfg.mode == "auto"
         assert cfg.significance_level == 0.01
+        assert cfg.use_structured_output is False
         # allowed_providers must match conf/config.yaml (no hardcoded list)
         expected = OmegaConf.load(CONFIG_FILE)
         assert list(cfg.allowed_providers) == list(expected.allowed_providers)

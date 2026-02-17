@@ -5,6 +5,7 @@ import time
 import litellm
 import pandas as pd
 from loguru import logger
+from pydantic import BaseModel, Field
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -18,6 +19,26 @@ TEXT_COMPLETION_MODEL_PATTERN = re.compile(
     r"^(openai/)?(text-(davinci|curie|babbage|ada)-\d{3})(\b|$)",
     re.IGNORECASE,
 )
+
+
+# ---------------------------------------------------------------------------
+# Pydantic model for structured LLM output
+# ---------------------------------------------------------------------------
+
+class QuestionnaireResponse(BaseModel):
+    """Structured response from the LLM for a batch of questionnaire items.
+
+    Each element in `answers` is a dict mapping the 1-based question index
+    (as a string) to the integer score the model chose.
+    """
+
+    answers: list[dict[str, int]] = Field(
+        ...,
+        description=(
+            "List of answers. Each element is an object mapping the question "
+            "index (string) to the integer score, e.g. [{\"1\": 5}, {\"2\": 3}]."
+        ),
+    )
 
 
 def _is_text_completion_model(model: str) -> bool:
@@ -88,8 +109,17 @@ def _llm_completion(
     api_key=None,
     api_base=None,
     delay=1,
+    response_format=None,
 ):
-    """Call LiteLLM completion. Supports any provider (OpenAI, Anthropic, Gemini, etc.)."""
+    """Call LiteLLM completion. Supports any provider (OpenAI, Anthropic, Gemini, etc.).
+
+    Parameters
+    ----------
+    response_format : type[BaseModel] | dict | None
+        When a Pydantic BaseModel subclass is passed, LiteLLM requests structured
+        JSON output conforming to the model's schema.  When ``None`` (default),
+        normal text output is used.
+    """
     time.sleep(delay)
     kwargs = {
         "model": model,
@@ -107,6 +137,9 @@ def _llm_completion(
         kwargs["prompt"] = prompt
     else:
         raise ValueError("Either messages or prompt must be provided")
+
+    if response_format is not None:
+        kwargs["response_format"] = response_format
 
     kwargs["drop_params"] = True  # drop unsupported params (e.g. temperature on O-series)
     response = litellm.completion(**kwargs)
@@ -135,6 +168,7 @@ def chat(
     api_key=None,
     api_base=None,
     delay=1,
+    response_format=None,
 ):
     """Chat completion for any LiteLLM-supported model (GPT, Claude, Gemini, etc.)."""
     return _llm_completion(
@@ -146,6 +180,7 @@ def chat(
         api_key=api_key,
         api_base=api_base,
         delay=delay,
+        response_format=response_format,
     )
 
 
@@ -174,7 +209,8 @@ def completion(
 
 
 def convert_results(result, column_header):
-    result = result.strip()  # Remove leading and trailing whitespace
+    """Parse a free-text LLM response into a list of integer scores (legacy parser)."""
+    result = result.strip()
     try:
         result_list = [int(element.strip()[-1]) for element in result.split('\n') if element.strip()]
     except Exception:
@@ -182,6 +218,47 @@ def convert_results(result, column_header):
         logger.warning("Unable to capture the responses on {}.", column_header)
 
     return result_list
+
+
+def convert_results_structured(result_json: str, column_header: str) -> list[int]:
+    """Parse a structured JSON LLM response into a flat list of integer scores.
+
+    The expected JSON format matches :class:`QuestionnaireResponse`::
+
+        {"answers": [{"1": 5}, {"2": 3}, ...]}
+
+    Falls back to :func:`convert_results` if parsing fails.
+    """
+    try:
+        parsed = QuestionnaireResponse.model_validate_json(result_json)
+        scores: list[int] = []
+        for answer_obj in parsed.answers:
+            for _idx, score in answer_obj.items():
+                scores.append(int(score))
+        return scores
+    except Exception:
+        logger.warning(
+            "Structured output parsing failed for {}; falling back to text parser.",
+            column_header,
+        )
+        return convert_results(result_json, column_header)
+
+
+def _build_structured_prompt(questionnaire: dict, questions_string: str) -> str:
+    """Return a prompt that asks the LLM to respond as structured JSON.
+
+    The prompt instructs the model to return a JSON object matching
+    :class:`QuestionnaireResponse` instead of the legacy "index: score" text
+    format.
+    """
+    base_prompt = questionnaire["prompt"]
+    return (
+        f"{base_prompt}\n{questions_string}\n\n"
+        "Respond ONLY with a JSON object in this exact format (no markdown, no extra text):\n"
+        '{"answers": [{"<question_index>": <score>}, ...]}\n'
+        "where <question_index> is the 1-based question number as a string and "
+        "<score> is your integer rating."
+    )
 
 
 def example_generator(questionnaire, run):
@@ -194,6 +271,10 @@ def example_generator(questionnaire, run):
     _validate_model_litellm(model)
 
     api_base = getattr(run, "api_base", None) or ""
+    use_structured = getattr(run, "use_structured_output", False)
+
+    if use_structured:
+        logger.info("Structured output mode enabled — responses will be parsed as JSON.")
 
     # Read the existing CSV file into a pandas DataFrame
     df = pd.read_csv(testing_file)
@@ -249,15 +330,34 @@ def example_generator(questionnaire, run):
                                 result = completion(model, inputs, **api_kw)
                             else:
                                 # Chat models: GPT, Claude, Gemini, Llama, etc.
-                                inputs = previous_records + [
-                                    {"role": "system", "content": questionnaire["inner_setting"]},
-                                    {"role": "user", "content": questionnaire["prompt"] + "\n" + questions_string},
-                                ]
-                                result = chat(model, inputs, **api_kw)
-                                previous_records.append({
-                                    "role": "user",
-                                    "content": questionnaire["prompt"] + "\n" + questions_string,
-                                })
+                                if use_structured:
+                                    structured_prompt = _build_structured_prompt(
+                                        questionnaire, questions_string
+                                    )
+                                    inputs = previous_records + [
+                                        {"role": "system", "content": questionnaire["inner_setting"]},
+                                        {"role": "user", "content": structured_prompt},
+                                    ]
+                                    result = chat(
+                                        model,
+                                        inputs,
+                                        **api_kw,
+                                        response_format=QuestionnaireResponse,
+                                    )
+                                    previous_records.append({
+                                        "role": "user",
+                                        "content": structured_prompt,
+                                    })
+                                else:
+                                    inputs = previous_records + [
+                                        {"role": "system", "content": questionnaire["inner_setting"]},
+                                        {"role": "user", "content": questionnaire["prompt"] + "\n" + questions_string},
+                                    ]
+                                    result = chat(model, inputs, **api_kw)
+                                    previous_records.append({
+                                        "role": "user",
+                                        "content": questionnaire["prompt"] + "\n" + questions_string,
+                                    })
                                 previous_records.append({"role": "assistant", "content": result})
 
                             result_string_list.append(result.strip())
@@ -283,7 +383,10 @@ def example_generator(questionnaire, run):
 
                         result_string = '\n'.join(result_string_list)
 
-                        result_list = convert_results(result_string, column_header)
+                        if use_structured:
+                            result_list = convert_results_structured(result_string, column_header)
+                        else:
+                            result_list = convert_results(result_string, column_header)
 
                         try:
                             if column_header in df.columns:
