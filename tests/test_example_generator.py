@@ -1,5 +1,4 @@
 """Unit tests for example_generator multi-provider LLM support and structured output."""
-import json
 import sys
 
 import pytest
@@ -69,12 +68,12 @@ class TestQuestionnaireResponse:
 
     def test_missing_answers_key_raises(self):
         raw = '{"scores": [1, 2, 3]}'
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             QuestionnaireResponse.model_validate_json(raw)
 
     def test_non_integer_score_raises(self):
         raw = '{"answers": [{"1": "high"}]}'
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             QuestionnaireResponse.model_validate_json(raw)
 
     def test_schema_generation(self):
