@@ -31,13 +31,39 @@ This project uses [uv](https://docs.astral.sh/uv/getting-started/installation/) 
 3. **Run** either with `uv run python run_psychobench.py ...` or by activating the venv: `source .venv/bin/activate` then `python run_psychobench.py ...`
 
 ## 🛠️ Usage
-✨An example run (with uv: use `uv run python run_psychobench.py ...` or activate `.venv` first):
+✨Example runs (with uv: use `uv run python run_psychobench.py ...` or activate `.venv` first):
+
+**OpenAI:**
 ```
-python run_psychobench.py model=gpt-3.5-turbo questionnaire=EPQ-R openai_key="<openai_api_key>" shuffle_count=1 test_count=2
+python run_psychobench.py model=gpt-4 questionnaire=EPQ-R api_key="$OPENAI_API_KEY" shuffle_count=1 test_count=2
 ```
 
+**Anthropic (Claude):**
+```
+python run_psychobench.py model=claude-3-5-sonnet-20241022 questionnaire=BFI api_key="$ANTHROPIC_API_KEY"
+```
+
+**Google (Gemini):**
+```
+python run_psychobench.py model=gemini/gemini-1.5-pro questionnaire=BFI api_key="$GOOGLE_API_KEY"
+```
+
+**Self-hosted / custom endpoint (e.g. vLLM, Ollama, LiteLLM proxy):**
+```
+python run_psychobench.py model=openai/my-model api_base=http://localhost:8000 questionnaire=BFI
+```
+
+Any model supported by [LiteLLM](https://docs.litellm.ai/docs/providers) works out of the box.
+
 ## Configuration
-Configuration is driven by [Hydra](https://hydra.cc/). Defaults live in `conf/config.yaml`. You can override any option from the command line (e.g. `model=gpt-4`, `questionnaire=BFI,EPQ-R`). The `openai_key` option defaults to the `OPENAI_API_KEY` environment variable if set; you can also set it in the config file or override it on the CLI. Outputs are written into timestamped directories under `results/` (e.g. `results/2025-02-17/14-30-45/`) so each run gets its own folder.
+Configuration is driven by [Hydra](https://hydra.cc/). Defaults live in `conf/config.yaml`. You can override any option from the command line (e.g. `model=gpt-4`, `questionnaire=BFI,EPQ-R`). Outputs are written into timestamped directories under `results/` (e.g. `results/2025-02-17/14-30-45/`) so each run gets its own folder.
+
+### API Key Resolution
+
+The API key is resolved in this order:
+1. `api_key` CLI override or config value (generic, works with any provider)
+2. `openai_key` (legacy fallback, kept for backward compatibility)
+3. Provider-specific environment variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, etc.) — LiteLLM picks these up automatically
 
 ✨An example result:
 | Category | gpt-4 (n = 10) | Male (n = 693) | Female (n = 878) |
@@ -70,7 +96,7 @@ All options are defined in `conf/config.yaml` and can be overridden from the com
 
 1. **questionnaire** (required): Select the questionnaire(s) to run. See the list below. Example: `questionnaire=EPQ-R` or `questionnaire=BFI,DTDD,EPQ-R`.
 
-2. **model**: The name of the model to test (e.g. `text-davinci-003`, `gpt-3.5-turbo`, `gpt-4`).
+2. **model**: Any LiteLLM-supported model identifier (e.g. `gpt-4`, `gpt-4o`, `claude-3-5-sonnet-20241022`, `gemini/gemini-1.5-pro`, `command-r-plus`, `openai/my-model`). See [LiteLLM providers](https://docs.litellm.ai/docs/providers) for the full list.
 
 3. **shuffle_count**: Number of question orders. 0 = original only; n > 0 = original plus n permutations. Default: 0.
 
@@ -82,7 +108,11 @@ All options are defined in `conf/config.yaml` and can be overridden from the com
 
 7. **mode**: Pipeline stage: `auto` (full), `generation`, `testing`, or `analysis`. Default: `auto`.
 
-8. **openai_key**: API key for LLM provider (OpenAI by default). Defaults to the `OPENAI_API_KEY` environment variable if set; override via config or CLI when using the example generator. This project uses LiteLLM, which supports OpenAI and many other providers (Anthropic, Cohere, etc.).
+8. **api_key**: Generic API key for any LiteLLM-supported provider. Defaults to the `LLM_API_KEY` environment variable. You can also rely on provider-specific env vars (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc.) which LiteLLM reads automatically.
+
+9. **api_base**: Custom API base URL for self-hosted or proxy endpoints (e.g. vLLM, Ollama, LiteLLM proxy). Default: `null` (use provider's default endpoint).
+
+10. **openai_key** *(legacy)*: Kept for backward compatibility. Used as a fallback when `api_key` is empty. Defaults to the `OPENAI_API_KEY` environment variable.
 
 ## 🦙 Benchmarking Your Own Model
 It is easy! Just replace the function `example_generator` fed into the function `run_psychobench(cfg, generator)`.

@@ -12,55 +12,53 @@ from tenacity import (
 from tqdm import tqdm
 
 
+def _configure_litellm(run):
+    """Set up LiteLLM credentials from the run config.
+
+    Resolution order for the API key:
+      1. ``run.api_key`` (generic, works with any provider)
+      2. ``run.openai_key`` (legacy fallback for backward compatibility)
+      3. Provider-specific env vars already present (OPENAI_API_KEY,
+         ANTHROPIC_API_KEY, …) — LiteLLM picks these up automatically.
+    """
+    api_key = getattr(run, "api_key", None) or ""
+    openai_key = getattr(run, "openai_key", None) or ""
+
+    effective_key = api_key or openai_key
+    if effective_key:
+        litellm.api_key = effective_key
+        os.environ.setdefault("OPENAI_API_KEY", effective_key)
+
+    api_base = getattr(run, "api_base", None)
+    if api_base:
+        litellm.api_base = api_base
+
+
 @retry(wait=wait_random_exponential(min=1, max=60), stop=stop_after_attempt(6))
 def chat(
-    model,                      # gpt-4, gpt-4-0314, gpt-4-32k, gpt-4-32k-0314, gpt-3.5-turbo, gpt-3.5-turbo-0301
-    messages,                   # [{"role": "system"/"user"/"assistant", "content": "Hello!", "name": "example"}]
+    model,                      # Any LiteLLM-supported model identifier
+    messages,                   # [{"role": "system"/"user"/"assistant", "content": "Hello!"}]
     temperature=0,    # [0, 2]: Lower values -> more focused and deterministic; Higher values -> more random.
     n=1,                        # Chat completion choices to generate for each input message.
     max_tokens=1024,            # The maximum number of tokens to generate in the chat completion.
-    delay=1           # Seconds to sleep after each request.
+    delay=1,          # Seconds to sleep after each request.
+    api_base=None,    # Optional custom API base URL.
 ):
     time.sleep(delay)
-    response = litellm.completion(
-        model=model,
-        messages=messages,
-        temperature=temperature,
-        n=n,
-        max_tokens=max_tokens
-    )
+    kwargs = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+        "n": n,
+        "max_tokens": max_tokens,
+    }
+    if api_base:
+        kwargs["api_base"] = api_base
+    response = litellm.completion(**kwargs)
     if n == 1:
         return response.choices[0].message.content
     else:
         return [i.message.content for i in response.choices]
-
-@retry(wait=wait_random_exponential(min=1, max=60), stop=stop_after_attempt(6))
-def completion(
-    model,           # text-davinci-003, text-davinci-002, text-curie-001, text-babbage-001, text-ada-001
-    prompt,          # The prompt(s) to generate completions for, encoded as a string,
-                     # array of strings, array of tokens, or array of token arrays.
-    temperature=0,   # [0, 2]: Lower values -> more focused and deterministic; Higher values -> more random.
-    n=1,             # Completions to generate for each prompt.
-    max_tokens=1024, # The maximum number of tokens to generate in the chat completion.
-    delay=1         # Seconds to sleep after each request.
-):
-    time.sleep(delay)
-
-    # LiteLLM uses completion() for text completion models
-    response = litellm.completion(
-        model=model,
-        prompt=prompt,
-        temperature=temperature,
-        n=n,
-        max_tokens=max_tokens
-    )
-
-    if n == 1:
-        return response.choices[0].text
-    else:
-        choices = response.choices
-        choices.sort(key=lambda x: x.index)
-        return [choice.text for choice in choices]
 
 
 def convert_results(result, column_header):
@@ -78,11 +76,9 @@ def example_generator(questionnaire, run):
     testing_file = run.testing_file
     model = run.model
     records_file = run.name_exp if run.name_exp is not None else model
+    api_base = getattr(run, "api_base", None) or None
 
-    # Set API key for LiteLLM (supports OpenAI and other providers)
-    if run.openai_key:
-        os.environ["OPENAI_API_KEY"] = run.openai_key
-        litellm.api_key = run.openai_key
+    _configure_litellm(run)
 
     # Read the existing CSV file into a pandas DataFrame
     df = pd.read_csv(testing_file)
@@ -123,26 +119,16 @@ def example_generator(questionnaire, run):
                         previous_records = []
 
                         for questions_string in questions_list:
-                            result = ''
-                            if model == 'text-davinci-003':
-                                inner_setting = questionnaire["inner_setting"].replace(
-                                    'Format: \"index: score\"', 'Format: \"index: score\\\n\"'
-                                )
-                                inputs = inner_setting + questionnaire["prompt"] + '\n' + questions_string
-                                result = completion(model, inputs)
-                            elif model.startswith("gpt"):
-                                inputs = previous_records + [
-                                    {"role": "system", "content": questionnaire["inner_setting"]},
-                                    {"role": "user", "content": questionnaire["prompt"] + '\n' + questions_string}
-                                ]
-                                result = chat(model, inputs)
-                                previous_records.append({
-                                    "role": "user",
-                                    "content": questionnaire["prompt"] + '\n' + questions_string
-                                })
-                                previous_records.append({"role": "assistant", "content": result})
-                            else:
-                                raise ValueError("The model is not supported or does not exist.")
+                            inputs = previous_records + [
+                                {"role": "system", "content": questionnaire["inner_setting"]},
+                                {"role": "user", "content": questionnaire["prompt"] + '\n' + questions_string},
+                            ]
+                            result = chat(model, inputs, api_base=api_base)
+                            previous_records.append({
+                                "role": "user",
+                                "content": questionnaire["prompt"] + '\n' + questions_string,
+                            })
+                            previous_records.append({"role": "assistant", "content": result})
 
                             result_string_list.append(result.strip())
 

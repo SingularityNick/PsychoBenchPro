@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Multi-provider LLM support**: The example generator now works with **any** model supported by [LiteLLM](https://docs.litellm.ai/docs/providers) — OpenAI, Anthropic (Claude), Google (Gemini), Cohere, AWS Bedrock, self-hosted endpoints, and more.
+  - New `api_key` config option: a generic API key that works with any provider (resolves from `LLM_API_KEY` env var).
+  - New `api_base` config option: custom API base URL for self-hosted or proxy endpoints (vLLM, Ollama, LiteLLM proxy).
+  - The `openai_key` config option is kept as a legacy fallback for backward compatibility.
+  - Removed hardcoded model routing (`text-davinci-003` / `gpt-*` checks) — all models now use the unified chat completion path via LiteLLM.
+  - New `_configure_litellm()` helper handles API key resolution: `api_key` > `openai_key` > provider-specific env vars.
+- **Tests**: Added `tests/test_example_generator.py` with tests for `convert_results`, `_configure_litellm`, and multi-provider `chat()` routing.
+
 ### Changed
 
 - **LLM API integration**: Refactored from OpenAI SDK to [LiteLLM](https://github.com/BerriAI/litellm) for unified LLM API access. LiteLLM supports OpenAI and many other providers (Anthropic, Cohere, etc.), making it easier to use different LLM providers. The `openai_key` config option remains for backward compatibility and works with LiteLLM.

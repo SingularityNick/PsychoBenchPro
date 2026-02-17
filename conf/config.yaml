@@ -1,11 +1,19 @@
 # Default config for PsychoBench. Override any key from the CLI, e.g.:
 #   python run_psychobench.py model=gpt-4 questionnaire=BFI,EPQ-R
+#   python run_psychobench.py model=claude-3-5-sonnet-20241022 api_key=$ANTHROPIC_API_KEY
 # Each run creates a timestamped output directory under results/.
 hydra:
   run:
     dir: results/${now:%Y-%m-%d}/${now:%H-%M-%S}
 
-# Model to test (e.g. text-davinci-003, gpt-3.5-turbo, gpt-4).
+# Model to test. Supports any model available through LiteLLM:
+#   OpenAI:    gpt-4, gpt-3.5-turbo, gpt-4o, etc.
+#   Anthropic: claude-3-5-sonnet-20241022, claude-3-opus-20240229, etc.
+#   Google:    gemini/gemini-pro, gemini/gemini-1.5-pro, etc.
+#   Cohere:    command-r, command-r-plus, etc.
+#   AWS:       bedrock/anthropic.claude-3-sonnet-20240229-v1:0, etc.
+#   Custom:    openai/<your-model> with api_base for self-hosted endpoints
+# See https://docs.litellm.ai/docs/providers for the full list of supported providers.
 model: gpt-3.5-turbo
 
 # Comma-separated list of questionnaires, or ALL.
@@ -26,6 +34,17 @@ significance_level: 0.01
 # Pipeline mode: auto (full), generation, testing, or analysis.
 mode: auto
 
-# API key for LLM provider (OpenAI by default). Defaults to OPENAI_API_KEY env var; override via config or CLI.
-# This project uses LiteLLM, which supports OpenAI and many other providers.
+# --- Multi-provider API configuration ---
+# Generic API key used for any LiteLLM-supported provider.
+# Set via CLI (api_key=sk-...) or the LLM_API_KEY env var.
+# For provider-specific env vars (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.),
+# LiteLLM will pick them up automatically — no need to set api_key.
+api_key: ${oc.env:LLM_API_KEY,""}
+
+# Custom API base URL for self-hosted or proxy endpoints (e.g. vLLM, Ollama, LiteLLM proxy).
+# Leave null to use the provider's default endpoint.
+api_base: null
+
+# Legacy alias — kept for backward compatibility. If set, it is used as a
+# fallback when api_key is empty.
 openai_key: ${oc.env:OPENAI_API_KEY,""}

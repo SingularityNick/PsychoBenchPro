@@ -34,8 +34,11 @@ class TestComposeAPI:
         assert hasattr(cfg, "significance_level")
         assert hasattr(cfg, "mode")
         assert hasattr(cfg, "openai_key")
+        assert hasattr(cfg, "api_key")
+        assert hasattr(cfg, "api_base")
         assert cfg.mode == "auto"
         assert cfg.significance_level == 0.01
+        assert cfg.api_base is None
         assert OmegaConf.is_config(cfg)
 
     def test_compose_overrides_apply(self):
@@ -63,6 +66,19 @@ class TestComposeAPI:
         assert cfg.questionnaire == "BFI,EPQ-R"
         parts = [p.strip() for p in cfg.questionnaire.split(",")]
         assert parts == ["BFI", "EPQ-R"]
+
+    def test_compose_multi_provider_overrides(self):
+        """Multi-provider fields (api_key, api_base) can be overridden via CLI-style overrides."""
+        overrides = [
+            "model=claude-3-5-sonnet-20241022",
+            "api_key=sk-ant-test",
+            "api_base=http://localhost:8000",
+        ]
+        with initialize(version_base=None, config_path=CONFIG_PATH):
+            cfg = compose(config_name=CONFIG_NAME, overrides=overrides)
+        assert cfg.model == "claude-3-5-sonnet-20241022"
+        assert cfg.api_key == "sk-ant-test"
+        assert cfg.api_base == "http://localhost:8000"
 
 
 class TestRunPsychobenchWithComposedConfig:
