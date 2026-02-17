@@ -32,7 +32,7 @@ def get_questionnaire(questionnaire_name):
 
 
 
-def plot_bar_chart(value_list, cat_list, item_list, save_name, title="Bar Chart"):
+def plot_bar_chart(value_list, cat_list, item_list, save_name, title="Bar Chart", save_dir="results"):
     num_bars = len(value_list)
     bar_width = 1 / num_bars * 0.8
     figure_width = max(8, len(cat_list) * 1.2)
@@ -56,7 +56,8 @@ def plot_bar_chart(value_list, cat_list, item_list, save_name, title="Bar Chart"
     else:
         ax.set_xticklabels(cat_list)
     ax.legend()
-    plt.savefig(f'results/figures/{save_name}', dpi=300)
+    os.makedirs(os.path.join(save_dir, "figures"), exist_ok=True)
+    plt.savefig(os.path.join(save_dir, "figures", save_name), dpi=300)
 
 
 
@@ -468,7 +469,7 @@ def analysis_results(questionnaire, run):
             
         output_list += '\n'
     
-    plot_bar_chart(mean_list, cat_list, [model] + [c[0] for c in crowd_list], save_name=run.figures_file, title=questionnaire["name"])
+    plot_bar_chart(mean_list, cat_list, [model] + [c[0] for c in crowd_list], save_name=run.figures_file, title=questionnaire["name"], save_dir=run.output_dir)
     output_list += f'\n\n![Bar Chart](figures/{run.figures_file} "Bar Chart of {model} on {questionnaire["name"]}")\n\n'
     
     # Writing the results into a text file
@@ -480,6 +481,13 @@ def analysis_results(questionnaire, run):
 def run_psychobench(cfg, generator):
     if cfg.questionnaire is None:
         raise ValueError("questionnaire must be set (e.g. questionnaire=BFI or questionnaire=ALL)")
+    # Get output dir from Hydra when running under @hydra.main(); fallback for Compose API (tests)
+    try:
+        from hydra.core.hydra_config import HydraConfig
+        output_dir = HydraConfig.get().runtime.output_dir
+    except Exception:
+        output_dir = "results"
+
     # Extract the targeted questionnaires from the top-level config
     questionnaire_list = (
         ['BFI', 'DTDD', 'EPQ-R', 'ECR-R', 'CABIN', 'GSE', 'LMS', 'BSRI', 'ICB', 'LOT-R', 'Empathy', 'EIS', 'WLEIS', '16P']
@@ -495,14 +503,14 @@ def run_psychobench(cfg, generator):
         run = OmegaConf.merge(
             cfg_copy,
             OmegaConf.create({
-                "testing_file": f'results/{base}-{questionnaire["name"]}.csv',
-                "results_file": f'results/{base}-{questionnaire["name"]}.md',
+                "output_dir": output_dir,
+                "testing_file": f'{output_dir}/{base}-{questionnaire["name"]}.csv',
+                "results_file": f'{output_dir}/{base}-{questionnaire["name"]}.md',
                 "figures_file": f'{base}-{questionnaire["name"]}.png',
             }),
         )
 
-        os.makedirs("results", exist_ok=True)
-        os.makedirs("results/figures", exist_ok=True)
+        os.makedirs(os.path.join(output_dir, "figures"), exist_ok=True)
         if run.mode in ['generation', 'auto']:
             generate_testfile(questionnaire, run)
 
