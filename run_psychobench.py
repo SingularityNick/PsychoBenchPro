@@ -1,9 +1,19 @@
 import argparse
+import sys
+
+from loguru import logger
+
 from utils import *
 from example_generator import *
-    
+
+
+def _configure_logging():
+    logger.remove()
+    logger.add(sys.stderr, format="<level>{message}</level>", level="INFO")
+
 
 if __name__ == '__main__':
+    _configure_logging()
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', required=True, type=str, default='text-davinci-003',
                         help='The name of the model to test')
