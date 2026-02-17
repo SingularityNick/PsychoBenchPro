@@ -49,6 +49,24 @@ python run_psychobench.py \
 | Neuroticism | 3.9 $\pm$ 6.0 | 10.5 $\pm$ 5.8 | 12.5 $\pm$ 5.1 | 
 | Lying | 7.0 $\pm$ 2.1 | 7.1 $\pm$ 4.3 | 6.9 $\pm$ 4.0 | 
 
+## 🧪 Tests
+Unit tests use **pytest** and cover core logic in `utils.py` and `example_generator.py` (e.g. `get_questionnaire`, `convert_data`, `compute_statistics`, `hypothesis_testing`, `parsing`, `convert_results`).
+
+**Install dependencies** (runtime deps are in `requirements.txt`; dev deps include them):
+```bash
+pip install -r requirements-dev.txt
+```
+
+**Run all tests (from the project root):**
+```bash
+pytest tests/ -v
+```
+
+**Run with coverage:**
+```bash
+pytest tests/ -v --cov=utils --cov=example_generator
+```
+
 ## 🔧 Argument Specification
 1. `--questionnaire`: (Required) Select the questionnaire(s) to run. For choises please see the list bellow.
 
