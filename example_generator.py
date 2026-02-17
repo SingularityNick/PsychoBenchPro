@@ -1,5 +1,7 @@
-import openai
 import os
+import time
+
+import openai
 import pandas as pd
 from loguru import logger
 from tenacity import (
@@ -7,7 +9,6 @@ from tenacity import (
     stop_after_attempt,
     wait_random_exponential,
 )
-import time
 from tqdm import tqdm
 
 
@@ -36,14 +37,15 @@ def chat(
 @retry(wait=wait_random_exponential(min=1, max=60), stop=stop_after_attempt(6))
 def completion(
     model,           # text-davinci-003, text-davinci-002, text-curie-001, text-babbage-001, text-ada-001
-    prompt,          # The prompt(s) to generate completions for, encoded as a string, array of strings, array of tokens, or array of token arrays.
+    prompt,          # The prompt(s) to generate completions for, encoded as a string,
+                     # array of strings, array of tokens, or array of token arrays.
     temperature=0,   # [0, 2]: Lower values -> more focused and deterministic; Higher values -> more random.
     n=1,             # Completions to generate for each prompt.
     max_tokens=1024, # The maximum number of tokens to generate in the chat completion.
     delay=1         # Seconds to sleep after each request.
 ):
     time.sleep(delay)
-    
+
     response = openai.Completion.create(
         model=model,
         prompt=prompt,
@@ -51,7 +53,7 @@ def completion(
         n=n,
         max_tokens=max_tokens
     )
-    
+
     if n == 1:
         return response['choices'][0]['text']
     else:
@@ -93,28 +95,36 @@ def example_generator(questionnaire, run):
                 # Find the index of the previous column
                 questions_column_index = i - 1
                 shuffle_count += 1
-                
+
                 # Retrieve the column data as a string
                 questions_list = df.iloc[:, questions_column_index].astype(str)
-                separated_questions = [questions_list[i:i+30] for i in range(0, len(questions_list), 30)]  
-                questions_list = ['\n'.join([f"{i+1}.{q.split('.')[1]}" for i, q in enumerate(questions)]) for j, questions in enumerate(separated_questions)]
+                separated_questions = [
+                    questions_list[i:i+30] for i in range(0, len(questions_list), 30)
+                ]
+                questions_list = [
+                    '\n'.join([f"{i+1}.{q.split('.')[1]}" for i, q in enumerate(questions)])
+                    for j, questions in enumerate(separated_questions)
+                ]
 
 
                 for k in range(run.test_count):
-                    
+
                     df = pd.read_csv(testing_file)
-                    
+
                     # Insert the updated column into the DataFrame with a unique identifier in the header
                     column_header = f'shuffle{shuffle_count - 1}-test{k}'
-                    
+
                     while(True):
                         result_string_list = []
                         previous_records = []
-                        
+
                         for questions_string in questions_list:
                             result = ''
                             if model == 'text-davinci-003':
-                                inputs = questionnaire["inner_setting"].replace('Format: \"index: score\"', 'Format: \"index: score\\\n\"') + questionnaire["prompt"] + '\n' + questions_string
+                                inner_setting = questionnaire["inner_setting"].replace(
+                                    'Format: \"index: score\"', 'Format: \"index: score\\\n\"'
+                                )
+                                inputs = inner_setting + questionnaire["prompt"] + '\n' + questions_string
                                 result = completion(model, inputs)
                             elif model.startswith("gpt"):
                                 inputs = previous_records + [
@@ -122,26 +132,37 @@ def example_generator(questionnaire, run):
                                     {"role": "user", "content": questionnaire["prompt"] + '\n' + questions_string}
                                 ]
                                 result = chat(model, inputs)
-                                previous_records.append({"role": "user", "content": questionnaire["prompt"] + '\n' + questions_string})
+                                previous_records.append({
+                                    "role": "user",
+                                    "content": questionnaire["prompt"] + '\n' + questions_string
+                                })
                                 previous_records.append({"role": "assistant", "content": result})
                             else:
                                 raise ValueError("The model is not supported or does not exist.")
-                        
+
                             result_string_list.append(result.strip())
-                        
+
                             # Write the prompts and results to the file
                             os.makedirs("prompts", exist_ok=True)
                             os.makedirs("responses", exist_ok=True)
 
-                            with open(f'prompts/{records_file}-{questionnaire["name"]}-shuffle{shuffle_count - 1}.txt', "a") as file:
+                            prompts_path = (
+                                f'prompts/{records_file}-{questionnaire["name"]}'
+                                f'-shuffle{shuffle_count - 1}.txt'
+                            )
+                            with open(prompts_path, "a") as file:
                                 file.write(f'{inputs}\n====\n')
-                            with open(f'responses/{records_file}-{questionnaire["name"]}-shuffle{shuffle_count - 1}.txt', "a") as file:
+                            responses_path = (
+                                f'responses/{records_file}-{questionnaire["name"]}'
+                                f'-shuffle{shuffle_count - 1}.txt'
+                            )
+                            with open(responses_path, "a") as file:
                                 file.write(f'{result}\n====\n')
 
                         result_string = '\n'.join(result_string_list)
-                        
+
                         result_list = convert_results(result_string, column_header)
-                        
+
                         try:
                             if column_header in df.columns:
                                 df[column_header] = result_list
@@ -154,5 +175,5 @@ def example_generator(questionnaire, run):
 
                     # Write the updated DataFrame back to the CSV file
                     df.to_csv(testing_file, index=False)
-                    
+
                     pbar.update(1)

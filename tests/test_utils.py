@@ -2,9 +2,9 @@
 import pytest
 
 from utils import (
-    get_questionnaire,
-    convert_data,
     compute_statistics,
+    convert_data,
+    get_questionnaire,
     hypothesis_testing,
     parsing,
 )

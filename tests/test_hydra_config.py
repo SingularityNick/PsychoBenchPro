@@ -14,7 +14,6 @@ from omegaconf import OmegaConf
 
 from utils import run_psychobench
 
-
 # Config path relative to this test file (tests/test_hydra_config.py) -> ../conf
 CONFIG_PATH = "../conf"
 CONFIG_NAME = "config"
@@ -76,7 +75,9 @@ class TestRunPsychobenchWithComposedConfig:
                 config_name=CONFIG_NAME,
                 overrides=["questionnaire=null"],
             )
-        mock_generator = lambda q, r: None
+        def mock_generator(q, r):
+            return None
+
         with pytest.raises(ValueError, match="questionnaire must be set"):
             run_psychobench(cfg, mock_generator)
 
@@ -134,7 +135,10 @@ class TestRunPsychobenchWithComposedConfig:
         ]
         with initialize(version_base=None, config_path=CONFIG_PATH):
             cfg = compose(config_name=CONFIG_NAME, overrides=overrides)
-        mock_generator = lambda q, r: None
+
+        def mock_generator(q, r):
+            return None
+
         run_psychobench(cfg, mock_generator)
 
         csv_path = tmp_path / "results" / "test-gen-BFI.csv"

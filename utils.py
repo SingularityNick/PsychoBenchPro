@@ -1,13 +1,16 @@
+import copy
 import csv
 import json
 import os
 import random
-import scipy.stats as stats
-from statistics import mean, stdev
-import numpy as np
-import matplotlib.pyplot as plt
 import sys
+from statistics import mean, stdev
+
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
+import requests
+import scipy.stats as stats
 from loguru import logger
 from omegaconf import OmegaConf
 
@@ -16,8 +19,8 @@ def get_questionnaire(questionnaire_name):
     try:
         with open('questionnaires.json') as dataset:
             data = json.load(dataset)
-    except FileNotFoundError:
-        raise FileNotFoundError("The 'questionnaires.json' file does not exist.")
+    except FileNotFoundError as err:
+        raise FileNotFoundError("The 'questionnaires.json' file does not exist.") from err
 
     # Matching by questionnaire_name in dataset
     questionnaire = None
@@ -73,17 +76,17 @@ def generate_testfile(questionnaire, run):
         # Shuffle the question indices
         if shuffle_count != 0:
             random.shuffle(question_indices)
-        
+
         # Shuffle the questions order based on the shuffled indices
         questions = [f'{index}. {questions_list[question]}' for index, question in enumerate(question_indices, 1)]
-        
+
         csv_output.append([f'Prompt: {questionnaire["prompt"]}'] + questions)
         csv_output.append([f'order-{shuffle_count}'] + question_indices)
         for count in range(test_count):
             csv_output.append([f'shuffle{shuffle_count}-test{count}'] + [''] * len(question_indices))
 
-    csv_output = zip(*csv_output)
-        
+    csv_output = zip(*csv_output, strict=True)
+
     # Write the csv file
     with open(output_file, 'w', newline='') as csv_file:
         writer = csv.writer(csv_file)
@@ -98,33 +101,33 @@ def convert_data(questionnaire, testing_file):
         sys.exit(1)
 
     test_data = []
-    
-    with open(testing_file, 'r') as csvfile:
+
+    with open(testing_file) as csvfile:
         reader = csv.reader(csvfile)
         header = next(reader)
-        
+
         # Take the index of column which refer to the question order
         order_indices = []
         for index, column in enumerate(header):
             if column.startswith("order"):
                 order_indices.append(index)
-                
+
         # For each question order, record the correspond test data
         for i in range(len(order_indices)):
-            
+
             # start and end are the range of the test data which correspond to the current question order
             start = order_indices[i] + 1
             end = order_indices[i+1] - 1 if order_indices[i] != order_indices[-1] else len(header)
-            
+
             # column index refer to the index of column within those test data
             for column_index in range(start, end):
                 column_data = {}
                 csvfile.seek(0)
                 next(reader)
-                
+
                 # For each row in the table, take the question index x and related response y as `"x": y` format
                 for row in reader:
-                    try: 
+                    try:
                         # Check whether the question is a reverse scale
                         if int(row[start-1]) in questionnaire["reverse"]:
                             column_data[int(row[start-1])] = questionnaire["scale"] - int(row[column_index])
@@ -135,34 +138,34 @@ def convert_data(questionnaire, testing_file):
                         sys.exit(1)
 
                 test_data.append(column_data)
-            
+
     return test_data
 
 
 
 def compute_statistics(questionnaire, data_list):
     results = []
-    
+
     for cat in questionnaire["categories"]:
         scores_list = []
-        
+
         for data in data_list:
             scores = []
             for key in data:
                 if key in cat["cat_questions"]:
                     scores.append(data[key])
-            
+
             # Getting the computation mode (SUM or AVG)
             if questionnaire["compute_mode"] == "SUM":
                 scores_list.append(sum(scores))
             else:
                 scores_list.append(mean(scores))
-        
+
         if len(scores_list) < 2:
             raise ValueError("The test file should have at least 2 test cases.")
-        
+
         results.append((mean(scores_list), stdev(scores_list), len(scores_list)))
-        
+
     return results
 
 
@@ -174,20 +177,20 @@ def hypothesis_testing(result1, result2, significance_level, model, crowd_name):
     # Extract the mean, std and size for both data sets
     mean1, std1, n1 = result1
     mean2, std2, n2 = result2
-    output_list += f'{mean2:.1f} $\pm$ {std2:.1f}'
-    
+    output_list += rf'{mean2:.1f} $\pm$ {std2:.1f}'
+
     # Add an epsilon to prevent the zero standard deviarion
     epsilon = 1e-8
     std1 += epsilon
     std2 += epsilon
-    
+
     output_text += '\n- **Statistic**:\n'
     output_text += f'{model}:\tmean1 = {mean1:.1f},\tstd1 = {std1:.1f},\tn1 = {n1}\n'
     output_text += f'{crowd_name}:\tmean2 = {mean2:.1f},\tstd2 = {std2:.1f},\tn2 = {n2}\n'
-    
+
     # Perform F-test
     output_text += '\n- **F-Test:**\n\n'
-    
+
     if std1 > std2:
         f_value = std1 ** 2 / std2 ** 2
         df1, df2 = n1 - 1, n2 - 1
@@ -197,58 +200,88 @@ def hypothesis_testing(result1, result2, significance_level, model, crowd_name):
 
     p_value = (1 - stats.f.cdf(f_value, df1, df2)) * 2
     equal_var = True if p_value > significance_level else False
-    
+
     output_text += f'\tf-value = {f_value:.4f}\t($df_1$ = {df1}, $df_2$ = {df2})\n\n'
     output_text += f'\tp-value = {p_value:.4f}\t(two-tailed test)\n\n'
     output_text += '\tNull hypothesis $H_0$ ($s_1^2$ = $s_2^2$): '
 
     if p_value > significance_level:
         output_text += f'\tSince p-value ({p_value:.4f}) > α ({significance_level}), $H_0$ cannot be rejected.\n\n'
-        output_text += f'\t**Conclusion ($s_1^2$ = $s_2^2$):** The variance of average scores responsed by {model} is statistically equal to that responsed by {crowd_name} in this category.\n\n'
+        output_text += (
+            f'\t**Conclusion ($s_1^2$ = $s_2^2$):** '
+            f'The variance of average scores responsed by {model} is statistically '
+            f'equal to that responsed by {crowd_name} in this category.\n\n'
+        )
     else:
         output_text += f'\tSince p-value ({p_value:.4f}) < α ({significance_level}), $H_0$ is rejected.\n\n'
-        output_text += f'\t**Conclusion ($s_1^2$ ≠ $s_2^2$):** The variance of average scores responsed by {model} is statistically unequal to that responsed by {crowd_name} in this category.\n\n'
+        output_text += (
+            f'\t**Conclusion ($s_1^2$ ≠ $s_2^2$):** '
+            f'The variance of average scores responsed by {model} is statistically '
+            f'unequal to that responsed by {crowd_name} in this category.\n\n'
+        )
 
     # Performing T-test
-    output_text += '- **Two Sample T-Test (Equal Variance):**\n\n' if equal_var else '- **Two Sample T-test (Welch\'s T-Test):**\n\n'
-    
-    df = n1 + n2 - 2 if equal_var else ((std1**2 / n1 + std2**2 / n2)**2) / ((std1**2 / n1)**2 / (n1 - 1) + (std2**2 / n2)**2 / (n2 - 1))
+    if equal_var:
+        output_text += '- **Two Sample T-Test (Equal Variance):**\n\n'
+    else:
+        output_text += '- **Two Sample T-test (Welch\'s T-Test):**\n\n'
+
+    if equal_var:
+        df = n1 + n2 - 2
+    else:
+        numerator = (std1**2 / n1 + std2**2 / n2)**2
+        denominator = ((std1**2 / n1)**2 / (n1 - 1) + (std2**2 / n2)**2 / (n2 - 1))
+        df = numerator / denominator
     t_value, p_value = stats.ttest_ind_from_stats(mean1, std1, n1, mean2, std2, n2, equal_var=equal_var)
 
     output_text += f'\tt-value = {t_value:.4f}\t($df$ = {df:.1f})\n\n'
     output_text += f'\tp-value = {p_value:.4f}\t(two-tailed test)\n\n'
-    
+
     output_text += '\tNull hypothesis $H_0$ ($µ_1$ = $µ_2$): '
     if p_value > significance_level:
         output_text += f'\tSince p-value ({p_value:.4f}) > α ({significance_level}), $H_0$ cannot be rejected.\n\n'
-        output_text += f'\t**Conclusion ($µ_1$ = $µ_2$):** The average scores of {model} is assumed to be equal to the average scores of {crowd_name} in this category.\n\n'
+        output_text += (
+            f'\t**Conclusion ($µ_1$ = $µ_2$):** '
+            f'The average scores of {model} is assumed to be equal to the average '
+            f'scores of {crowd_name} in this category.\n\n'
+        )
         # output_list += f' ( $-$ )'
 
     else:
         output_text += f'Since p-value ({p_value:.4f}) < α ({significance_level}), $H_0$ is rejected.\n\n'
         if t_value > 0:
             output_text += '\tAlternative hypothesis $H_1$ ($µ_1$ > $µ_2$): '
-            output_text += f'\tSince p-value ({(1-p_value/2):.1f}) > α ({significance_level}), $H_1$ cannot be rejected.\n\n'
-            output_text += f'\t**Conclusion ($µ_1$ > $µ_2$):** The average scores of {model} is assumed to be larger than the average scores of {crowd_name} in this category.\n\n'
+            output_text += (
+                f'\tSince p-value ({(1-p_value/2):.1f}) > α ({significance_level}), '
+                f'$H_1$ cannot be rejected.\n\n'
+            )
+            output_text += (
+                f'\t**Conclusion ($µ_1$ > $µ_2$):** '
+                f'The average scores of {model} is assumed to be larger than the '
+                f'average scores of {crowd_name} in this category.\n\n'
+            )
             # output_list += f' ( $\\uparrow$ )'
         else:
             output_text += '\tAlternative hypothesis $H_1$ ($µ_1$ < $µ_2$): '
-            output_text += f'\tSince p-value ({(1-p_value/2):.1f}) > α ({significance_level}), $H_1$ cannot be rejected.\n\n'
-            output_text += f'\t**Conclusion ($µ_1$ < $µ_2$):** The average scores of {model} is assumed to be smaller than the average scores of {crowd_name} in this category.\n\n'
+            output_text += (
+                f'\tSince p-value ({(1-p_value/2):.1f}) > α ({significance_level}), '
+                f'$H_1$ cannot be rejected.\n\n'
+            )
+            output_text += (
+                f'\t**Conclusion ($µ_1$ < $µ_2$):** '
+                f'The average scores of {model} is assumed to be smaller than the '
+                f'average scores of {crowd_name} in this category.\n\n'
+            )
             # output_list += f' ( $\\downarrow$ )'
 
-    output_list += f' | '
+    output_list += ' | '
     return (output_text, output_list)
 
-
-import json 
-import copy
-import requests
 
 payload_template = {
     "questions": [
         {"text": "You regularly make new friends.", "answer": None},
-        {"text": "You spend a lot of your free time exploring various random topics that pique your interest.", "answer": None},
+        {"text": "You spend a lot of your free time exploring various random topics that pique your interest.", "answer": None},  # noqa: E501
         {"text": "Seeing other people cry can easily make you feel like you want to cry too.", "answer": None},
         {"text": "You often make a backup plan for a backup plan.", "answer": None},
         {"text": "You usually stay calm, even under a lot of pressure.", "answer": None},
@@ -319,7 +352,7 @@ role_mapping = {'ISTJ': 'Logistician', 'ISTP': 'Virtuoso', 'ISFJ': 'Defender', '
 
 def parsing(score_list):
     code = ''
-    
+
     if score_list[0] >= 50:
         code = code + 'E'
     else:
@@ -351,10 +384,10 @@ def parsing(score_list):
 # scores: List of int, length: 60, int range: -3~3
 def query_16personalities_api(scores):
     payload = copy.deepcopy(payload_template)
-    
+
     for index, score in enumerate(scores):
         payload['questions'][index]["answer"] = score
-    
+
     headers = {
         "accept": "application/json, text/plain, */*",
         "accept-encoding": "gzip, deflate, br",
@@ -369,16 +402,15 @@ def query_16personalities_api(scores):
         "sec-fetch-dest": "empty",
         "sec-fetch-mode": "cors",
         "sec-fetch-site": "same-origin",
-        'content-type': 'application/json',
         'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.122 Safari/537.36',
     }
-    
+
     session = requests.session()
-    r = session.post('https://www.16personalities.com/test-results', data=json.dumps(payload), headers=headers)
-    
+    session.post('https://www.16personalities.com/test-results', data=json.dumps(payload), headers=headers)
+
     sess_r = session.get("https://www.16personalities.com/api/session")
     scores = sess_r.json()['user']['scores']
-    
+
     if sess_r.json()['user']['traits']['energy'] != 'Extraverted':
         energy_value = 100 - (101 + scores[0]) // 2
     else:
@@ -399,9 +431,9 @@ def query_16personalities_api(scores):
         identity_value = 100 - (101 + scores[4]) // 2
     else:
         identity_value = (101 + scores[4]) // 2
-    
+
     code, role = parsing([energy_value, mind_value, nature_value, tactics_value, identity_value])
-    
+
     return code, role, [energy_value, mind_value, nature_value, tactics_value, identity_value]
 
 
@@ -417,13 +449,13 @@ def analysis_personality(run, test_data):
         result = query_16personalities_api(ordered_list)
         result = result[:2] + tuple(result[2])
         df.loc[len(df)] = result
-    
-    column_sums = [sum(col) for col in zip(*all_data)]
+
+    column_sums = [sum(col) for col in zip(*all_data, strict=True)]
     avg_data = [int(sum / len(all_data)) for sum in column_sums]
     avg_result = query_16personalities_api(avg_data)
     avg_result = avg_result[:2] + tuple(avg_result[2])
     df.loc["Avg"] = avg_result
-    
+
     # Writing the results into a text file
     with open(result_file, "w", encoding="utf-8") as f:
         f.write("# 16 Personality Results\n\n")
@@ -435,19 +467,19 @@ def analysis_results(questionnaire, run):
     testing_file = run.testing_file
     result_file = run.results_file
     model = run.model
-    
+
     test_data = convert_data(questionnaire, testing_file)
-    
+
     if questionnaire["name"] == "16P":
         analysis_personality(run, test_data)
         return
     else:
         test_results = compute_statistics(questionnaire, test_data)
-        
+
     cat_list = [cat['cat_name'] for cat in questionnaire['categories']]
     crowd_list = [(c["crowd_name"], c["n"]) for c in questionnaire['categories'][0]["crowd"]]
     mean_list = [[] for i in range(len(crowd_list) + 1)]
-    
+
     output_list = f'# {questionnaire["name"]} Results\n\n'
     output_list += f'| Category | {model} (n = {len(test_data)}) | ' + ' | '.join([f'{c[0]} (n = {c[1]})' for c in crowd_list]) + ' |\n'
     output_list += '| :---: | ' + ' | '.join([":---:" for i in range(len(crowd_list) + 1)]) + ' |\n'
@@ -456,21 +488,21 @@ def analysis_results(questionnaire, run):
     # Analysis by each category
     for cat_index, cat in enumerate(questionnaire['categories']):
         output_text += f'## {cat["cat_name"]}\n'
-        output_list += f'| {cat["cat_name"]} | {test_results[cat_index][0]:.1f} $\pm$ {test_results[cat_index][1]:.1f} | '
+        output_list += rf'| {cat["cat_name"]} | {test_results[cat_index][0]:.1f} $\pm$ {test_results[cat_index][1]:.1f} | '
         mean_list[0].append(test_results[cat_index][0])
-        
+
         for crowd_index, crowd_group in enumerate(crowd_list):
             crowd_data = (cat["crowd"][crowd_index]["mean"], cat["crowd"][crowd_index]["std"], cat["crowd"][crowd_index]["n"])
             result_text, result_list = hypothesis_testing(test_results[cat_index], crowd_data, significance_level, model, crowd_group[0])
             output_list += result_list
             output_text += result_text
             mean_list[crowd_index+1].append(crowd_data[0])
-            
+
         output_list += '\n'
-    
+
     plot_bar_chart(mean_list, cat_list, [model] + [c[0] for c in crowd_list], save_name=run.figures_file, title=questionnaire["name"])
     output_list += f'\n\n![Bar Chart](figures/{run.figures_file} "Bar Chart of {model} on {questionnaire["name"]}")\n\n'
-    
+
     # Writing the results into a text file
     with open(result_file, "w", encoding="utf-8") as f:
         f.write(output_list + output_text)
