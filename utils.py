@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import sys
 import pandas as pd
 from loguru import logger
+from omegaconf import OmegaConf
 
 
 def get_questionnaire(questionnaire_name):
@@ -59,10 +60,10 @@ def plot_bar_chart(value_list, cat_list, item_list, save_name, title="Bar Chart"
 
 
 
-def generate_testfile(questionnaire, args):
-    test_count = args.test_count
-    do_shuffle = args.shuffle_count
-    output_file = args.testing_file
+def generate_testfile(questionnaire, run):
+    test_count = run.test_count
+    do_shuffle = run.shuffle_count
+    output_file = run.testing_file
     csv_output = []
     questions_list = questionnaire["questions"] # get all questions
 
@@ -404,9 +405,9 @@ def query_16personalities_api(scores):
     return code, role, [energy_value, mind_value, nature_value, tactics_value, identity_value]
 
 
-def analysis_personality(args, test_data):
+def analysis_personality(run, test_data):
     all_data = []
-    result_file = args.results_file
+    result_file = run.results_file
     cat = ['Personality Type', 'Role', 'Extraverted', 'Intuitive', 'Thinking', 'Judging', 'Assertive']
     df = pd.DataFrame(columns=cat)
 
@@ -429,16 +430,16 @@ def analysis_personality(args, test_data):
         f.write(df.to_markdown())
 
 
-def analysis_results(questionnaire, args):
-    significance_level = args.significance_level
-    testing_file = args.testing_file
-    result_file = args.results_file
-    model = args.model
+def analysis_results(questionnaire, run):
+    significance_level = run.significance_level
+    testing_file = run.testing_file
+    result_file = run.results_file
+    model = run.model
     
     test_data = convert_data(questionnaire, testing_file)
     
     if questionnaire["name"] == "16P":
-        analysis_personality(args, test_data)
+        analysis_personality(run, test_data)
         return
     else:
         test_results = compute_statistics(questionnaire, test_data)
@@ -467,8 +468,8 @@ def analysis_results(questionnaire, args):
             
         output_list += '\n'
     
-    plot_bar_chart(mean_list, cat_list, [model] + [c[0] for c in crowd_list], save_name=args.figures_file, title=questionnaire["name"])
-    output_list += f'\n\n![Bar Chart](figures/{args.figures_file} "Bar Chart of {model} on {questionnaire["name"]}")\n\n'
+    plot_bar_chart(mean_list, cat_list, [model] + [c[0] for c in crowd_list], save_name=run.figures_file, title=questionnaire["name"])
+    output_list += f'\n\n![Bar Chart](figures/{run.figures_file} "Bar Chart of {model} on {questionnaire["name"]}")\n\n'
     
     # Writing the results into a text file
     with open(result_file, "w", encoding="utf-8") as f:
@@ -476,34 +477,41 @@ def analysis_results(questionnaire, args):
 
 
 
-def run_psychobench(args, generator):
-    
-    # Extract the targeted questionnaires
-    questionnaire_list = ['BFI', 'DTDD', 'EPQ-R', 'ECR-R', 'CABIN', 'GSE', 'LMS', 'BSRI', 'ICB', 'LOT-R', 'Empathy', 'EIS', 'WLEIS', '16P'] \
-                         if args.questionnaire == 'ALL' else args.questionnaire.split(',')
-    
+def run_psychobench(cfg, generator):
+    if cfg.questionnaire is None:
+        raise ValueError("questionnaire must be set (e.g. questionnaire=BFI or questionnaire=ALL)")
+    # Extract the targeted questionnaires from the top-level config
+    questionnaire_list = (
+        ['BFI', 'DTDD', 'EPQ-R', 'ECR-R', 'CABIN', 'GSE', 'LMS', 'BSRI', 'ICB', 'LOT-R', 'Empathy', 'EIS', 'WLEIS', '16P']
+        if cfg.questionnaire == 'ALL'
+        else cfg.questionnaire.split(',')
+    )
+
     for questionnaire_name in questionnaire_list:
-        # Get questionnaire
         questionnaire = get_questionnaire(questionnaire_name)
-        args.testing_file = f'results/{args.name_exp}-{questionnaire["name"]}.csv' if args.name_exp is not None else f'results/{args.model}-{questionnaire["name"]}.csv'
-        args.results_file = f'results/{args.name_exp}-{questionnaire["name"]}.md' if args.name_exp is not None else f'results/{args.model}-{questionnaire["name"]}.md'
-        args.figures_file = f'{args.name_exp}-{questionnaire["name"]}.png' if args.name_exp is not None else f'{args.model}-{questionnaire["name"]}.png'
+        base = cfg.name_exp if cfg.name_exp is not None else cfg.model
+        cfg_copy = OmegaConf.create(OmegaConf.to_container(cfg, resolve=True))
+        OmegaConf.set_struct(cfg_copy, False)
+        run = OmegaConf.merge(
+            cfg_copy,
+            OmegaConf.create({
+                "testing_file": f'results/{base}-{questionnaire["name"]}.csv',
+                "results_file": f'results/{base}-{questionnaire["name"]}.md',
+                "figures_file": f'{base}-{questionnaire["name"]}.png',
+            }),
+        )
 
         os.makedirs("results", exist_ok=True)
         os.makedirs("results/figures", exist_ok=True)
-        
-        # Generation
-        if args.mode in ['generation', 'auto']:
-            generate_testfile(questionnaire, args)
-        
-        # Testing
-        if args.mode in ['testing', 'auto']:
-            generator(questionnaire, args)
-            
-        # Analysis
-        if args.mode in ['analysis', 'auto']:
+        if run.mode in ['generation', 'auto']:
+            generate_testfile(questionnaire, run)
+
+        if run.mode in ['testing', 'auto']:
+            generator(questionnaire, run)
+
+        if run.mode in ['analysis', 'auto']:
             try:
-                analysis_results(questionnaire, args)
+                analysis_results(questionnaire, run)
             except Exception:
-                logger.exception("Unable to analysis {}.", args.testing_file)
+                logger.exception("Unable to analysis {}.", run.testing_file)
 

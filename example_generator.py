@@ -71,12 +71,12 @@ def convert_results(result, column_header):
     return result_list
 
 
-def example_generator(questionnaire, args):
-    testing_file = args.testing_file
-    model = args.model
-    records_file = args.name_exp if args.name_exp is not None else model
+def example_generator(questionnaire, run):
+    testing_file = run.testing_file
+    model = run.model
+    records_file = run.name_exp if run.name_exp is not None else model
 
-    openai.api_key = args.openai_key
+    openai.api_key = run.openai_key
 
     # Read the existing CSV file into a pandas DataFrame
     df = pd.read_csv(testing_file)
@@ -85,7 +85,7 @@ def example_generator(questionnaire, args):
     order_columns = [col for col in df.columns if col.startswith("order")]
     shuffle_count = 0
     insert_count = 0
-    total_iterations = len(order_columns) * args.test_count
+    total_iterations = len(order_columns) * run.test_count
 
     with tqdm(total=total_iterations) as pbar:
         for i, header in enumerate(df.columns):
@@ -100,7 +100,7 @@ def example_generator(questionnaire, args):
                 questions_list = ['\n'.join([f"{i+1}.{q.split('.')[1]}" for i, q in enumerate(questions)]) for j, questions in enumerate(separated_questions)]
 
 
-                for k in range(args.test_count):
+                for k in range(run.test_count):
                     
                     df = pd.read_csv(testing_file)
                     

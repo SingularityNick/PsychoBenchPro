@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Hydra configuration**: Integrated [Hydra](https://hydra.cc/) for configuration and CLI overrides.
+  - Default config in `conf/config.yaml` (model, questionnaire, shuffle_count, test_count, mode, significance_level, openai_key, etc.).
+  - Run from project root with overrides, e.g. `python run_psychobench.py model=gpt-4 questionnaire=BFI,EPQ-R`.
+  - `example_generator` and `run_psychobench` use a unified run config object.
+  - `.gitignore` updated to exclude Hydra output directories (e.g. `.hydra/`, `multirun/`).
+- **CI pipeline**: GitHub Actions workflow (`.github/workflows/tests.yml`) runs pytest on push to `main` and on pull requests, using uv and Python 3.11.
 - **uv package manager**: Project now uses [uv](https://docs.astral.sh/uv/) for dependency management.
   - `pyproject.toml` with PEP 621 metadata and dependencies: numpy, scipy, matplotlib, pandas, requests, openai, tenacity, tqdm, loguru.
   - `uv.lock` for reproducible installs.

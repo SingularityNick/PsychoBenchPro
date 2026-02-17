@@ -117,6 +117,9 @@ venv.bak/
 # Cursor
 .cursor/
 
+# Hydra (run config and overrides written each run)
+.hydra/
+
 # mkdocs documentation
 /site
 

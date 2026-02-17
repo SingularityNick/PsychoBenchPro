@@ -33,13 +33,11 @@ This project uses [uv](https://docs.astral.sh/uv/getting-started/installation/) 
 ## 🛠️ Usage
 ✨An example run (with uv: use `uv run python run_psychobench.py ...` or activate `.venv` first):
 ```
-python run_psychobench.py \
-  --model gpt-3.5-turbo \
-  --questionnaire EPQ-R \
-  --openai-key "<openai_api_key>"\
-  --shuffle-count 1 \
-  --test-count 2
+python run_psychobench.py model=gpt-3.5-turbo questionnaire=EPQ-R openai_key="<openai_api_key>" shuffle_count=1 test_count=2
 ```
+
+## Configuration
+Configuration is driven by [Hydra](https://hydra.cc/). Defaults live in `conf/config.yaml`. You can override any option from the command line (e.g. `model=gpt-4`, `questionnaire=BFI,EPQ-R`). The `openai_key` option defaults to the `OPENAI_API_KEY` environment variable if set; you can also set it in the config file or override it on the CLI. Outputs are written under `results/` (Hydra’s run directory is set to `.` so the working directory does not change).
 
 ✨An example result:
 | Category | gpt-4 (n = 10) | Male (n = 693) | Female (n = 878) |
@@ -67,31 +65,31 @@ uv run pytest tests/ -v
 uv run pytest tests/ -v --cov=utils --cov=example_generator
 ```
 
-## 🔧 Argument Specification
-1. `--questionnaire`: (Required) Select the questionnaire(s) to run. For choises please see the list bellow.
+## 🔧 Config options and CLI overrides
+All options are defined in `conf/config.yaml` and can be overridden from the command line (e.g. `model=gpt-4`, `questionnaire=BFI`).
 
-2. `--model`: (Required) The name of the model to test.
+1. **questionnaire** (required): Select the questionnaire(s) to run. See the list below. Example: `questionnaire=EPQ-R` or `questionnaire=BFI,DTDD,EPQ-R`.
 
-3. `--shuffle-count`: (Required) Numbers of different orders. If set zero, run only the original order. If set n > 0, run the original order along with its n permutations. Defaults to zero.
+2. **model**: The name of the model to test (e.g. `text-davinci-003`, `gpt-3.5-turbo`, `gpt-4`).
 
-4. `--test-count`: (Required) Numbers of runs for a same order. Defaults to one.
+3. **shuffle_count**: Number of question orders. 0 = original only; n > 0 = original plus n permutations. Default: 0.
 
-5. `--name-exp`: Name of this run. Is used to name the result files.
+4. **test_count**: Number of runs per order. Default: 1.
 
-6. `--significance-level`: The significance level for testing the difference of means between human and LLM. Defaults to 0.01.
+5. **name_exp**: Name of this run (used for result filenames). Default: use model name.
 
-7. `--mode`: For debugging. To choose which part of the code is running.
+6. **significance_level**: Significance level for hypothesis testing (human vs LLM means). Default: 0.01.
 
-Arguments related to `openai` API (can be discarded when users customize models):
+7. **mode**: Pipeline stage: `auto` (full), `generation`, `testing`, or `analysis`. Default: `auto`.
 
-1. `--openai-key`: Your API key. Can be found in `View API keys -> API keys`.
+8. **openai_key**: OpenAI API key. Defaults to the `OPENAI_API_KEY` environment variable if set; override via config or CLI when using the example generator.
 
 ## 🦙 Benchmarking Your Own Model
-It is easy! Just replace the function `example_generator` fed into the function `run_psychobench(args, generator)`.
+It is easy! Just replace the function `example_generator` fed into the function `run_psychobench(cfg, generator)`.
 
-Your customized function `your_generator()` does the following things:
+Your customized function `your_generator(questionnaire, run)` receives the current questionnaire and a **run config** (Hydra-style config with per-questionnaire paths). It should:
 
-1. Read questions from the file `args.testing_file`. The file locates under `results/` (check `run_psychobench()` in `utils.py`) and has the following format:
+1. Read questions from the file `run.testing_file`. That file lives under `results/` (see `run_psychobench()` in `utils.py`) and has the following format:
 
 | Prompt: ... | order-1 | shuffle0-test0 | shuffle0-test1 | Prompt: ... | order-2 | shuffle0-test0 | shuffle0-test1 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -104,40 +102,28 @@ You can read the columns before each column starting with `order-`, which contai
 
 2. Call your own LLM and get the results.
 
-3. Fill in the blank in the file `args.testing_file`. **Remember**: No need to map the response to its original order. Our code will take care of it.
+3. Fill in the blank in the file `run.testing_file`. **Remember**: No need to map the response to its original order. Our code will take care of it.
 
 Please check `example_generator.py` for datailed information.
 
-## 📃 Questionnaire List (Choices for Argument: --questionnaire)
-To include **multiple** questionnaires, use a comma to separate them. For example: `--questionnaire BFI,DTDD,EPQ-R`.
+## 📃 Questionnaire List (config key: questionnaire)
+To include **multiple** questionnaires, use a comma-separated override: `questionnaire=BFI,DTDD,EPQ-R`.
 
-To include **ALL** questionnaires, just use `--questionnaire ALL`.
+To include **ALL** questionnaires: `questionnaire=ALL`.
 
-1. Big Five Inventory: `--questionnaire BFI`
-
-2. Dark Triad Dirty Dozen: `--questionnaire DTDD`
-
-3. Eysenck Personality Questionnaire-Revised: `--questionnaire EPQ-R`
-
-4. Experiences in Close Relationships-Revised (Adult Attachment Questionnaire): `--questionnaire ECR-R`
-
-5. Comprehensive Assessment of Basic Interests: `--questionnaire CABIN`
-
-6. General Self-Efficacy: `--questionnaire GSE`
-
-7. Love of Money Scale: `--questionnaire LMS`
-
-8. Bem's Sex Role Inventory: `--questionnaire BSRI`
-
-9. Implicit Culture Belief: `--questionnaire ICB`
-
-10. Revised Life Orientation Test: `--questionnaire LOT-R`
-
-11. Empathy Scale: `--questionnaire Empathy`
-
-12. Emotional Intelligence Scale: `--questionnaire EIS`
-
-13. Wong and Law Emotional Intelligence Scale: `--questionnaire WLEIS`
+1. Big Five Inventory: `questionnaire=BFI`
+2. Dark Triad Dirty Dozen: `questionnaire=DTDD`
+3. Eysenck Personality Questionnaire-Revised: `questionnaire=EPQ-R`
+4. Experiences in Close Relationships-Revised (Adult Attachment Questionnaire): `questionnaire=ECR-R`
+5. Comprehensive Assessment of Basic Interests: `questionnaire=CABIN`
+6. General Self-Efficacy: `questionnaire=GSE`
+7. Love of Money Scale: `questionnaire=LMS`
+8. Bem's Sex Role Inventory: `questionnaire=BSRI`
+9. Implicit Culture Belief: `questionnaire=ICB`
+10. Revised Life Orientation Test: `questionnaire=LOT-R`
+11. Empathy Scale: `questionnaire=Empathy`
+12. Emotional Intelligence Scale: `questionnaire=EIS`
+13. Wong and Law Emotional Intelligence Scale: `questionnaire=WLEIS`
 
 ## 👉 Paper and Citation
 For more details, please refer to our paper <a href="https://arxiv.org/abs/2310.01386">here</a>.

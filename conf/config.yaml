@@ -1,0 +1,30 @@
+# Default config for PsychoBench. Override any key from the CLI, e.g.:
+#   python run_psychobench.py model=gpt-4 questionnaire=BFI,EPQ-R
+# Keep outputs under project results/ (no Hydra output dir).
+hydra:
+  run:
+    dir: .
+
+# Model to test (e.g. text-davinci-003, gpt-3.5-turbo, gpt-4).
+model: gpt-3.5-turbo
+
+# Comma-separated list of questionnaires, or ALL.
+questionnaire: ALL
+
+# Number of question orders: 0 = original only; n > 0 = original + n permutations.
+shuffle_count: 9
+
+# Number of runs per order.
+test_count: 1
+
+# Name of this run (used for result filenames). Null => use model name.
+name_exp: null
+
+# Significance level for hypothesis testing (human vs LLM means).
+significance_level: 0.01
+
+# Pipeline mode: auto (full), generation, testing, or analysis.
+mode: auto
+
+# OpenAI API key. Defaults to OPENAI_API_KEY env var; override via config or CLI.
+openai_key: ${oc.env:OPENAI_API_KEY,""}
