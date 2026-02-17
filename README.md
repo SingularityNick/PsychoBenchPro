@@ -22,8 +22,16 @@ Benchmarking LLMs' Psychological Portray.
 
 [Dec 28 2023]: Add support to 16personalities.com
 
+## Setup
+
+This project uses [uv](https://docs.astral.sh/uv/getting-started/installation/) for dependency management.
+
+1. **Install uv** (if needed): `curl -LsSf https://astral.sh/uv/install.sh | sh`
+2. **Install dependencies**: `uv sync` (creates `.venv` and installs from `pyproject.toml` and `uv.lock`)
+3. **Run** either with `uv run python run_psychobench.py ...` or by activating the venv: `source .venv/bin/activate` then `python run_psychobench.py ...`
+
 ## 🛠️ Usage
-✨An example run:
+✨An example run (with uv: use `uv run python run_psychobench.py ...` or activate `.venv` first):
 ```
 python run_psychobench.py \
   --model gpt-3.5-turbo \
