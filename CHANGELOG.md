@@ -21,5 +21,5 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- **Dependency management**: Removed `requirements.txt` and `requirements-dev.txt`; dependencies are managed solely via `pyproject.toml` and uv. Python version is set in `pyproject.toml` (e.g. `>=3.14`).
+- **Dependency management**: Removed `requirements.txt` and `requirements-dev.txt`; dependencies are managed solely via `pyproject.toml` and uv. Python version is set in `pyproject.toml` (e.g. `>=3.11`).
 - **.gitignore**: Removed `.python-version` from ignore list so the project's Python version is tracked in the repo.
