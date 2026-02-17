@@ -1,4 +1,4 @@
-import openai
+import litellm
 import os
 import pandas as pd
 from loguru import logger
@@ -21,7 +21,7 @@ def chat(
     delay=1           # Seconds to sleep after each request.
 ):
     time.sleep(delay)
-    response = openai.chat.completions.create(
+    response = litellm.completion(
         model=model,
         messages=messages,
         temperature=temperature,
@@ -44,7 +44,8 @@ def completion(
 ):
     time.sleep(delay)
     
-    response = openai.Completion.create(
+    # LiteLLM uses completion() for text completion models
+    response = litellm.completion(
         model=model,
         prompt=prompt,
         temperature=temperature,
@@ -53,11 +54,11 @@ def completion(
     )
     
     if n == 1:
-        return response['choices'][0]['text']
+        return response.choices[0].text
     else:
-        response = response['choices']
-        response.sort(key=lambda x: x['index'])
-        return [i['text'] for i in response['choices']]
+        choices = response.choices
+        choices.sort(key=lambda x: x.index)
+        return [choice.text for choice in choices]
 
 
 def convert_results(result, column_header):
@@ -76,7 +77,10 @@ def example_generator(questionnaire, run):
     model = run.model
     records_file = run.name_exp if run.name_exp is not None else model
 
-    openai.api_key = run.openai_key
+    # Set API key for LiteLLM (supports OpenAI and other providers)
+    if run.openai_key:
+        os.environ["OPENAI_API_KEY"] = run.openai_key
+        litellm.api_key = run.openai_key
 
     # Read the existing CSV file into a pandas DataFrame
     df = pd.read_csv(testing_file)

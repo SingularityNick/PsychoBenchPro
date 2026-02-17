@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **LLM API integration**: Refactored from OpenAI SDK to [LiteLLM](https://github.com/BerriAI/litellm) for unified LLM API access. LiteLLM supports OpenAI and many other providers (Anthropic, Cohere, etc.), making it easier to use different LLM providers. The `openai_key` config option remains for backward compatibility and works with LiteLLM.
+
 ### Added
 
 - **Hydra configuration**: Integrated [Hydra](https://hydra.cc/) for configuration and CLI overrides.
@@ -13,7 +17,7 @@ All notable changes to this project will be documented in this file.
   - `.gitignore` updated to exclude Hydra output directories (e.g. `.hydra/`, `multirun/`).
 - **CI pipeline**: GitHub Actions workflow (`.github/workflows/tests.yml`) runs pytest on push to `main` and on pull requests, using uv and Python 3.11.
 - **uv package manager**: Project now uses [uv](https://docs.astral.sh/uv/) for dependency management.
-  - `pyproject.toml` with PEP 621 metadata and dependencies: numpy, scipy, matplotlib, pandas, requests, openai, tenacity, tqdm, loguru.
+  - `pyproject.toml` with PEP 621 metadata and dependencies: numpy, scipy, matplotlib, pandas, requests, litellm, tenacity, tqdm, loguru.
   - `uv.lock` for reproducible installs.
   - `.python-version` set to 3.11 for consistent interpreter selection.
 - **README**: New "Setup" section with uv install steps and run instructions (`uv sync`, `uv run python run_psychobench.py ...`).
