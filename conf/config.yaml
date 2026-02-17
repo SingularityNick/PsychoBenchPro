@@ -37,7 +37,7 @@ mode: auto
 
 # Sampling temperature for LLM calls (0 = deterministic; 1 = more random).
 # Some models (e.g. Gemini 3) recommend temperature=1.0; override per run if needed.
-temperature: 1
+temperature: 0
 
 # LiteLLM reads API keys from environment variables (e.g. OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY).
 
