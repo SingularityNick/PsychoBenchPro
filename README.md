@@ -3,12 +3,6 @@
 </div>
 
 <div align="center">
-    <img src="https://codecov.io/gh/SingularityNick/PsychoBenchPro/branch/main/graph/badge.svg" alt="Coverage" />
-</div>
-
-</div>
-
-<div align="center">
 <img src="framework.jpg" width="750px">
 </div>
 
