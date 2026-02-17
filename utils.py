@@ -550,6 +550,9 @@ def run_psychobench(cfg, generator):
         )
 
         os.makedirs(os.path.join(output_dir, "figures"), exist_ok=True)
+        testing_dir = os.path.dirname(run.testing_file)
+        if testing_dir:
+            os.makedirs(testing_dir, exist_ok=True)
         if run.mode in ['generation', 'auto']:
             generate_testfile(questionnaire, run)
 

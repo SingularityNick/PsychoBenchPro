@@ -33,25 +33,24 @@ class TestComposeAPI:
         assert hasattr(cfg, "name_exp")
         assert hasattr(cfg, "significance_level")
         assert hasattr(cfg, "mode")
-        assert hasattr(cfg, "openai_api_key")
-        assert hasattr(cfg, "anthropic_api_key")
-        assert hasattr(cfg, "google_api_key")
         assert hasattr(cfg, "api_base")
+        assert hasattr(cfg, "allowed_providers")
         assert cfg.mode == "auto"
         assert cfg.significance_level == 0.01
+        assert list(cfg.allowed_providers) == ["gemini", "anthropic", "openai"]
         assert OmegaConf.is_config(cfg)
 
     def test_compose_overrides_apply(self):
         """CLI-style overrides are applied to composed config."""
         overrides = [
-            "model=my-model",
+            "model=openai/my-model",
             "questionnaire=BFI",
             "mode=generation",
             "shuffle_count=0",
         ]
         with initialize(version_base=None, config_path=CONFIG_PATH):
             cfg = compose(config_name=CONFIG_NAME, overrides=overrides)
-        assert cfg.model == "my-model"
+        assert cfg.model == "openai/my-model"
         assert cfg.questionnaire == "BFI"
         assert cfg.mode == "generation"
         assert cfg.shuffle_count == 0
@@ -84,6 +83,20 @@ class TestRunPsychobenchWithComposedConfig:
         with pytest.raises(ValueError, match="questionnaire must be set"):
             run_psychobench(cfg, mock_generator)
 
+    def test_run_psychobench_raises_when_model_lacks_provider_prefix(self):
+        """ValueError when model does not start with an allowed provider prefix."""
+        from example_generator import example_generator
+
+        overrides = [
+            "questionnaire=BFI",
+            "mode=testing",
+            "model=gpt-4",
+        ]
+        with initialize(version_base=None, config_path=CONFIG_PATH):
+            cfg = compose(config_name=CONFIG_NAME, overrides=overrides)
+        with pytest.raises(ValueError, match="model must start with a provider prefix"):
+            run_psychobench(cfg, example_generator)
+
     def test_run_psychobench_builds_run_config_and_calls_generator(self):
         """Composed cfg flows to run_psychobench; mock generator receives correct run paths."""
         calls = []
@@ -94,7 +107,7 @@ class TestRunPsychobenchWithComposedConfig:
         overrides = [
             "questionnaire=BFI",
             "mode=testing",
-            "model=test-model",
+            "model=openai/test-model",
         ]
         with initialize(version_base=None, config_path=CONFIG_PATH):
             cfg = compose(config_name=CONFIG_NAME, overrides=overrides)
@@ -102,10 +115,10 @@ class TestRunPsychobenchWithComposedConfig:
         assert len(calls) >= 1
         questionnaire, run = calls[0]
         assert questionnaire["name"] == "BFI"
-        assert run.model == "test-model"
-        assert run.testing_file == "results/test-model-BFI.csv"
-        assert run.results_file == "results/test-model-BFI.md"
-        assert run.figures_file == "test-model-BFI.png"
+        assert run.model == "openai/test-model"
+        assert run.testing_file == "results/openai/test-model-BFI.csv"
+        assert run.results_file == "results/openai/test-model-BFI.md"
+        assert run.figures_file == "openai/test-model-BFI.png"
 
     def test_run_psychobench_mode_generation_only_creates_testfile(
         self, tmp_path, monkeypatch
@@ -132,7 +145,7 @@ class TestRunPsychobenchWithComposedConfig:
         overrides = [
             "questionnaire=BFI",
             "mode=generation",
-            "model=test-gen",
+            "model=openai/test-gen",
             "shuffle_count=0",
             "test_count=1",
         ]
@@ -144,7 +157,7 @@ class TestRunPsychobenchWithComposedConfig:
 
         run_psychobench(cfg, mock_generator)
 
-        csv_path = tmp_path / "results" / "test-gen-BFI.csv"
+        csv_path = tmp_path / "results" / "openai" / "test-gen-BFI.csv"
         assert csv_path.exists()
         content = csv_path.read_text()
         assert "Prompt:" in content

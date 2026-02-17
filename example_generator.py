@@ -25,14 +25,42 @@ def _is_text_completion_model(model: str) -> bool:
     return bool(TEXT_COMPLETION_MODEL_PATTERN.search(model))
 
 
+def _provider_prefix(model: str) -> str | None:
+    """Return the provider prefix from a model string (e.g. 'openai' from 'openai/gpt-4'), or None."""
+    m = (model or "").strip()
+    if "/" in m:
+        return m.split("/", 1)[0].lower()
+    return None
+
+
 def _provider_from_model(model: str) -> str:
-    """Infer provider from LiteLLM model string: openai, anthropic, or google."""
-    m = (model or "").strip().lower()
-    if m.startswith("anthropic/") or m.startswith("claude"):
-        return "anthropic"
-    if m.startswith("vertex_ai/") or m.startswith("google/") or m.startswith("gemini"):
+    """Map provider prefix to API key attribute: gemini -> google, anthropic -> anthropic, openai -> openai."""
+    prefix = _provider_prefix(model)
+    if prefix is None:
+        return "openai"  # fallback only when validation is skipped
+    if prefix == "gemini":
         return "google"
+    if prefix in ("anthropic", "openai"):
+        return prefix
     return "openai"
+
+
+def _validate_model_provider(model: str, allowed_providers: list) -> None:
+    """Raise ValueError if model does not start with one of the allowed provider prefixes."""
+    if not model or not (model := model.strip()):
+        raise ValueError("model must be set and non-empty")
+    prefix = _provider_prefix(model)
+    if prefix is None:
+        raise ValueError(
+            f"model must start with a provider prefix, e.g. openai/, anthropic/, gemini/. "
+            f"Allowed providers: {allowed_providers}. Got: {model!r}"
+        )
+    allowed = [p.lower() for p in (allowed_providers or [])]
+    if prefix not in allowed:
+        raise ValueError(
+            f"model provider {prefix!r} is not in allowed_providers {allowed}. "
+            f"Model must start with one of: {', '.join(p + '/' for p in allowed)}"
+        )
 
 
 def _llm_completion(
@@ -66,6 +94,7 @@ def _llm_completion(
     else:
         raise ValueError("Either messages or prompt must be provided")
 
+    kwargs["drop_params"] = True  # drop unsupported params (e.g. temperature on O-series)
     response = litellm.completion(**kwargs)
     # Chat models return message.content; text completion models return .text
     if n == 1:
@@ -146,14 +175,10 @@ def example_generator(questionnaire, run):
     model = run.model
     records_file = run.name_exp if run.name_exp is not None else model
 
-    # Resolve API key from provider-specific config (openai_api_key, anthropic_api_key, google_api_key)
-    provider = _provider_from_model(model)
-    api_key = getattr(run, f"{provider}_api_key", None) or ""
+    allowed = getattr(run, "allowed_providers", None) or ["gemini", "anthropic", "openai"]
+    _validate_model_provider(model, allowed)
+
     api_base = getattr(run, "api_base", None) or ""
-    if api_key:
-        env_var = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "google": "GEMINI_API_KEY"}[provider]
-        os.environ.setdefault(env_var, api_key)
-        litellm.api_key = api_key
 
     # Read the existing CSV file into a pandas DataFrame
     df = pd.read_csv(testing_file)
@@ -196,11 +221,7 @@ def example_generator(questionnaire, run):
                         for questions_string in questions_list:
                             result = ""
                             use_text_completion = _is_text_completion_model(model)
-                            api_kw = {}
-                            if api_key:
-                                api_kw["api_key"] = api_key
-                            if api_base:
-                                api_kw["api_base"] = api_base
+                            api_kw = {"api_base": api_base} if api_base else {}
 
                             if use_text_completion:
                                 inner_setting = questionnaire["inner_setting"].replace(
@@ -224,19 +245,20 @@ def example_generator(questionnaire, run):
                             result_string_list.append(result.strip())
 
                             # Write the prompts and results to the file
-                            os.makedirs("prompts", exist_ok=True)
-                            os.makedirs("responses", exist_ok=True)
-
                             prompts_path = (
                                 f'prompts/{records_file}-{questionnaire["name"]}'
                                 f'-shuffle{shuffle_count - 1}.txt'
                             )
-                            with open(prompts_path, "a") as file:
-                                file.write(f'{inputs}\n====\n')
                             responses_path = (
                                 f'responses/{records_file}-{questionnaire["name"]}'
                                 f'-shuffle{shuffle_count - 1}.txt'
                             )
+                            for path in (prompts_path, responses_path):
+                                parent = os.path.dirname(path)
+                                if parent:
+                                    os.makedirs(parent, exist_ok=True)
+                            with open(prompts_path, "a") as file:
+                                file.write(f'{inputs}\n====\n')
                             with open(responses_path, "a") as file:
                                 file.write(f'{result}\n====\n')
 
