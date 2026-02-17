@@ -4,8 +4,8 @@ import hydra
 from loguru import logger
 from omegaconf import DictConfig
 
-from utils import run_psychobench
 from example_generator import example_generator
+from utils import run_psychobench
 
 
 def _configure_logging():

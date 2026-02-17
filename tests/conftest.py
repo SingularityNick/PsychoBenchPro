@@ -6,6 +6,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import csv
+
 import pytest
 
 
@@ -98,7 +99,7 @@ def write_convert_data_csv(path, rows_by_columns):
     Write a CSV for convert_data in the transposed format (each list is a column).
     rows_by_columns: list of lists; each inner list is one column's values in order.
     """
-    rows = list(zip(*rows_by_columns))
+    rows = list(zip(*rows_by_columns, strict=True))
     with open(path, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerows(rows)
