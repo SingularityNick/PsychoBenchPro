@@ -26,5 +26,6 @@ significance_level: 0.01
 # Pipeline mode: auto (full), generation, testing, or analysis.
 mode: auto
 
-# OpenAI API key. Defaults to OPENAI_API_KEY env var; override via config or CLI.
+# API key for LLM provider (OpenAI by default). Defaults to OPENAI_API_KEY env var; override via config or CLI.
+# This project uses LiteLLM, which supports OpenAI and many other providers.
 openai_key: ${oc.env:OPENAI_API_KEY,""}

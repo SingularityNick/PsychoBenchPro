@@ -82,7 +82,7 @@ All options are defined in `conf/config.yaml` and can be overridden from the com
 
 7. **mode**: Pipeline stage: `auto` (full), `generation`, `testing`, or `analysis`. Default: `auto`.
 
-8. **openai_key**: OpenAI API key. Defaults to the `OPENAI_API_KEY` environment variable if set; override via config or CLI when using the example generator.
+8. **openai_key**: API key for LLM provider (OpenAI by default). Defaults to the `OPENAI_API_KEY` environment variable if set; override via config or CLI when using the example generator. This project uses LiteLLM, which supports OpenAI and many other providers (Anthropic, Cohere, etc.).
 
 ## 🦙 Benchmarking Your Own Model
 It is easy! Just replace the function `example_generator` fed into the function `run_psychobench(cfg, generator)`.
