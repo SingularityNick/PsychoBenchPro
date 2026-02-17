@@ -1,12 +1,12 @@
 # Default config for PsychoBench. Override any key from the CLI, e.g.:
 #   python run_psychobench.py model=gpt-4 questionnaire=BFI,EPQ-R
-# Keep outputs under project results/ (no Hydra output dir).
+# Each run creates a timestamped output directory under results/.
 hydra:
   run:
-    dir: .
+    dir: results/${now:%Y-%m-%d}/${now:%H-%M-%S}
 
 # Model to test (e.g. text-davinci-003, gpt-3.5-turbo, gpt-4).
-model: gpt-3.5-turbo
+model: gpt-4
 
 # Comma-separated list of questionnaires, or ALL.
 questionnaire: ALL

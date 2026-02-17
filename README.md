@@ -37,7 +37,7 @@ python run_psychobench.py model=gpt-3.5-turbo questionnaire=EPQ-R openai_key="<o
 ```
 
 ## Configuration
-Configuration is driven by [Hydra](https://hydra.cc/). Defaults live in `conf/config.yaml`. You can override any option from the command line (e.g. `model=gpt-4`, `questionnaire=BFI,EPQ-R`). The `openai_key` option defaults to the `OPENAI_API_KEY` environment variable if set; you can also set it in the config file or override it on the CLI. Outputs are written under `results/` (Hydra’s run directory is set to `.` so the working directory does not change).
+Configuration is driven by [Hydra](https://hydra.cc/). Defaults live in `conf/config.yaml`. You can override any option from the command line (e.g. `model=gpt-4`, `questionnaire=BFI,EPQ-R`). The `openai_key` option defaults to the `OPENAI_API_KEY` environment variable if set; you can also set it in the config file or override it on the CLI. Outputs are written into timestamped directories under `results/` (e.g. `results/2025-02-17/14-30-45/`) so each run gets its own folder.
 
 ✨An example result:
 | Category | gpt-4 (n = 10) | Male (n = 693) | Female (n = 878) |
@@ -89,7 +89,7 @@ It is easy! Just replace the function `example_generator` fed into the function 
 
 Your customized function `your_generator(questionnaire, run)` receives the current questionnaire and a **run config** (Hydra-style config with per-questionnaire paths). It should:
 
-1. Read questions from the file `run.testing_file`. That file lives under `results/` (see `run_psychobench()` in `utils.py`) and has the following format:
+1. Read questions from the file `run.testing_file`. That file lives under the run's output directory (a timestamped folder under `results/`; see `run_psychobench()` in `utils.py`) and has the following format:
 
 | Prompt: ... | order-1 | shuffle0-test0 | shuffle0-test1 | Prompt: ... | order-2 | shuffle0-test0 | shuffle0-test1 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
