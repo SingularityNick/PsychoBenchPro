@@ -25,6 +25,70 @@ def _is_text_completion_model(model: str) -> bool:
     return bool(TEXT_COMPLETION_MODEL_PATTERN.search(model))
 
 
+def _provider_prefix(model: str) -> str | None:
+    """Return the provider prefix from a model string (e.g. 'openai' from 'openai/gpt-4'), or None."""
+    m = (model or "").strip()
+    if "/" in m:
+        return m.split("/", 1)[0].lower()
+    return None
+
+
+def _model_name_for_files(model: str) -> str:
+    """Return model string with provider prefix removed, for use in file/dir names."""
+    m = (model or "").strip()
+    if "/" in m:
+        return m.split("/", 1)[1]
+    return m
+
+
+def _provider_from_model(model: str) -> str:
+    """Map provider prefix to API key attribute: gemini -> google, anthropic -> anthropic, openai -> openai."""
+    prefix = _provider_prefix(model)
+    if prefix is None:
+        return "openai"  # fallback only when validation is skipped
+    if prefix == "gemini":
+        return "google"
+    if prefix in ("anthropic", "openai"):
+        return prefix
+    return "openai"
+
+
+def _validate_model_provider(model: str, allowed_providers: list) -> None:
+    """Raise ValueError if model does not start with one of the allowed provider prefixes."""
+    if not model or not (model := model.strip()):
+        raise ValueError("model must be set and non-empty")
+    prefix = _provider_prefix(model)
+    if prefix is None:
+        raise ValueError(
+            f"model must start with a provider prefix, e.g. openai/, anthropic/, gemini/. "
+            f"Allowed providers: {allowed_providers}. Got: {model!r}"
+        )
+    allowed = [p.lower() for p in (allowed_providers or [])]
+    if prefix not in allowed:
+        raise ValueError(
+            f"model provider {prefix!r} is not in allowed_providers {allowed}. "
+            f"Model must start with one of: {', '.join(p + '/' for p in allowed)}"
+        )
+
+
+def _validate_model_litellm(model: str) -> None:
+    """Raise ValueError if LiteLLM does not recognize the provider or model (fail fast before the loop)."""
+    try:
+        litellm.get_llm_provider(model)
+    except Exception as e:
+        raise ValueError(
+            f"LiteLLM could not resolve provider for model {model!r}. {e}"
+        ) from e
+    try:
+        litellm.get_model_info(model)
+    except Exception as e:
+        raise ValueError(
+            f"Model {model!r} is not in LiteLLM's model registry (unknown or unsupported). "
+            "Use a known model id (e.g. gemini/gemini-2.0-flash, openai/gpt-4). "
+            f"LiteLLM: {e}"
+        ) from e
+
+
 def _llm_completion(
     model: str,
     *,
@@ -56,6 +120,7 @@ def _llm_completion(
     else:
         raise ValueError("Either messages or prompt must be provided")
 
+    kwargs["drop_params"] = True  # drop unsupported params (e.g. temperature on O-series)
     response = litellm.completion(**kwargs)
     # Chat models return message.content; text completion models return .text
     if n == 1:
@@ -134,14 +199,13 @@ def convert_results(result, column_header):
 def example_generator(questionnaire, run):
     testing_file = run.testing_file
     model = run.model
-    records_file = run.name_exp if run.name_exp is not None else model
+    records_file = run.name_exp if run.name_exp is not None else _model_name_for_files(model)
 
-    # Resolve API key: api_key overrides, then openai_key, then rely on env vars
-    api_key = getattr(run, "api_key", None) or run.openai_key
+    allowed = getattr(run, "allowed_providers", None) or ["gemini", "anthropic", "openai"]
+    _validate_model_provider(model, allowed)
+    _validate_model_litellm(model)
+
     api_base = getattr(run, "api_base", None) or ""
-    if api_key:
-        os.environ.setdefault("OPENAI_API_KEY", api_key)
-        litellm.api_key = api_key
 
     # Read the existing CSV file into a pandas DataFrame
     df = pd.read_csv(testing_file)
@@ -184,9 +248,8 @@ def example_generator(questionnaire, run):
                         for questions_string in questions_list:
                             result = ""
                             use_text_completion = _is_text_completion_model(model)
-                            api_kw = {}
-                            if api_key:
-                                api_kw["api_key"] = api_key
+                            temperature = getattr(run, "temperature", 0)
+                            api_kw = {"temperature": temperature}
                             if api_base:
                                 api_kw["api_base"] = api_base
 

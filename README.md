@@ -27,11 +27,12 @@ This project uses [uv](https://docs.astral.sh/uv/getting-started/installation/) 
 ## 🛠️ Usage
 ✨An example run (with uv: use `uv run python run_psychobench.py ...` or activate `.venv` first):
 ```
-python run_psychobench.py model=gpt-3.5-turbo questionnaire=EPQ-R openai_key="<openai_api_key>" shuffle_count=1 test_count=2
+python run_psychobench.py model=openai/gpt-3.5-turbo questionnaire=EPQ-R shuffle_count=1 test_count=2
 ```
+Set API keys via environment variables (e.g. `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`); LiteLLM picks them up automatically.
 
 ## Configuration
-Configuration is driven by [Hydra](https://hydra.cc/). Defaults live in `conf/config.yaml`. You can override any option from the command line (e.g. `model=gpt-4`, `questionnaire=BFI,EPQ-R`). The `openai_key` option defaults to the `OPENAI_API_KEY` environment variable if set; you can also set it in the config file or override it on the CLI. Outputs are written into timestamped directories under `results/` (e.g. `results/2025-02-17/14-30-45/`) so each run gets its own folder.
+Configuration is driven by [Hydra](https://hydra.cc/). Defaults live in `conf/config.yaml`. You can override any option from the command line (e.g. `model=openai/gpt-4`, `questionnaire=BFI,EPQ-R`). Outputs are written into timestamped directories under `results/` (e.g. `results/2025-02-17/14-30-45/`) so each run gets its own folder.
 
 ✨An example result:
 | Category | gpt-4 (n = 10) | Male (n = 693) | Female (n = 878) |
@@ -64,7 +65,7 @@ All options are defined in `conf/config.yaml` and can be overridden from the com
 
 1. **questionnaire** (required): Select the questionnaire(s) to run. See the list below. Example: `questionnaire=EPQ-R` or `questionnaire=BFI,DTDD,EPQ-R`.
 
-2. **model**: The name of the model to test (e.g. `text-davinci-003`, `gpt-3.5-turbo`, `gpt-4`).
+2. **model**: The model to test; must start with a provider prefix (e.g. `openai/gpt-3.5-turbo`, `openai/gpt-4`, `anthropic/claude-3-5-sonnet`, `gemini/gemini-1.5-flash`).
 
 3. **shuffle_count**: Number of question orders. 0 = original only; n > 0 = original plus n permutations. Default: 0.
 
@@ -76,7 +77,7 @@ All options are defined in `conf/config.yaml` and can be overridden from the com
 
 7. **mode**: Pipeline stage: `auto` (full), `generation`, `testing`, or `analysis`. Default: `auto`.
 
-8. **openai_key**: API key for LLM provider (OpenAI by default). Defaults to the `OPENAI_API_KEY` environment variable if set; override via config or CLI when using the example generator. This project uses LiteLLM, which supports OpenAI and many other providers (Anthropic, Cohere, etc.).
+8. **api_base**: Optional custom API base URL (e.g. Azure, OpenAI-compatible proxies). LiteLLM reads API keys from environment variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, etc.).
 
 ## 🦙 Benchmarking Your Own Model
 It is easy! Just replace the function `example_generator` fed into the function `run_psychobench(cfg, generator)`.

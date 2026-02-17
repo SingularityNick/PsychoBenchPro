@@ -5,18 +5,23 @@ hydra:
   run:
     dir: results/${now:%Y-%m-%d}/${now:%H-%M-%S}
 
-# Model to test. Use any LiteLLM model string, e.g.:
-#   - openai/gpt-3.5-turbo, gpt-4, gpt-4o
-#   - anthropic/claude-3-opus-20240229, claude-3-5-sonnet
-#   - gemini/gemini-pro, google/gemini-1.5-flash
-#   - azure/gpt-4 (requires api_base), openrouter/anthropic/claude-3-opus
-model: gpt-3.5-turbo
+# Model to test. Must start with a provider prefix (see allowed_providers), e.g.:
+#   - openai/gpt-3.5-turbo, openai/gpt-4, openai/gpt-4o
+#   - anthropic/claude-3-opus-20240229, anthropic/claude-3-5-sonnet
+#   - gemini/gemini-pro, gemini/gemini-1.5-flash
+model: openai/gpt-3.5-turbo
+
+# Allowed LiteLLM provider prefixes. Model must start with one of these (e.g. openai/..., anthropic/..., gemini/...).
+allowed_providers:
+  - gemini
+  - anthropic
+  - openai
 
 # Comma-separated list of questionnaires, or ALL.
 questionnaire: ALL
 
 # Number of question orders: 0 = original only; n > 0 = original + n permutations.
-shuffle_count: 9
+shuffle_count: 1
 
 # Number of runs per order.
 test_count: 1
@@ -30,15 +35,11 @@ significance_level: 0.01
 # Pipeline mode: auto (full), generation, testing, or analysis.
 mode: auto
 
-# API key for LLM provider. Override via config or CLI.
-# For OpenAI: defaults to OPENAI_API_KEY env var.
-# For other providers, set the appropriate env (e.g. ANTHROPIC_API_KEY, GEMINI_API_KEY)
-# or pass api_key to override for the run.
-openai_key: ${oc.env:OPENAI_API_KEY,""}
+# Sampling temperature for LLM calls (0 = deterministic; 1 = more random).
+# Some models (e.g. Gemini 3) recommend temperature=1.0; override per run if needed.
+temperature: 0
 
-# Optional: Generic API key override. When set, used for the LLM call regardless of provider.
-# Useful when using a single key (e.g. OpenRouter) or to override env vars.
-api_key: ${oc.env:LITELLM_API_KEY,""}
+# LiteLLM reads API keys from environment variables (e.g. OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY).
 
 # Optional: Custom API base URL (e.g. Azure, OpenAI-compatible proxies).
 api_base: ""
