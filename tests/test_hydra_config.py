@@ -33,8 +33,9 @@ class TestComposeAPI:
         assert hasattr(cfg, "name_exp")
         assert hasattr(cfg, "significance_level")
         assert hasattr(cfg, "mode")
-        assert hasattr(cfg, "openai_key")
-        assert hasattr(cfg, "api_key")
+        assert hasattr(cfg, "openai_api_key")
+        assert hasattr(cfg, "anthropic_api_key")
+        assert hasattr(cfg, "google_api_key")
         assert hasattr(cfg, "api_base")
         assert cfg.mode == "auto"
         assert cfg.significance_level == 0.01

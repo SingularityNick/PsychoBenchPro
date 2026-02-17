@@ -25,6 +25,16 @@ def _is_text_completion_model(model: str) -> bool:
     return bool(TEXT_COMPLETION_MODEL_PATTERN.search(model))
 
 
+def _provider_from_model(model: str) -> str:
+    """Infer provider from LiteLLM model string: openai, anthropic, or google."""
+    m = (model or "").strip().lower()
+    if m.startswith("anthropic/") or m.startswith("claude"):
+        return "anthropic"
+    if m.startswith("vertex_ai/") or m.startswith("google/") or m.startswith("gemini"):
+        return "google"
+    return "openai"
+
+
 def _llm_completion(
     model: str,
     *,
@@ -136,11 +146,13 @@ def example_generator(questionnaire, run):
     model = run.model
     records_file = run.name_exp if run.name_exp is not None else model
 
-    # Resolve API key: api_key overrides, then openai_key, then rely on env vars
-    api_key = getattr(run, "api_key", None) or run.openai_key
+    # Resolve API key from provider-specific config (openai_api_key, anthropic_api_key, google_api_key)
+    provider = _provider_from_model(model)
+    api_key = getattr(run, f"{provider}_api_key", None) or ""
     api_base = getattr(run, "api_base", None) or ""
     if api_key:
-        os.environ.setdefault("OPENAI_API_KEY", api_key)
+        env_var = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "google": "GEMINI_API_KEY"}[provider]
+        os.environ.setdefault(env_var, api_key)
         litellm.api_key = api_key
 
     # Read the existing CSV file into a pandas DataFrame

@@ -30,15 +30,11 @@ significance_level: 0.01
 # Pipeline mode: auto (full), generation, testing, or analysis.
 mode: auto
 
-# API key for LLM provider. Override via config or CLI.
-# For OpenAI: defaults to OPENAI_API_KEY env var.
-# For other providers, set the appropriate env (e.g. ANTHROPIC_API_KEY, GEMINI_API_KEY)
-# or pass api_key to override for the run.
-openai_key: ${oc.env:OPENAI_API_KEY,""}
-
-# Optional: Generic API key override. When set, used for the LLM call regardless of provider.
-# Useful when using a single key (e.g. OpenRouter) or to override env vars.
-api_key: ${oc.env:LITELLM_API_KEY,""}
+# API keys per provider (from env or override via config/CLI).
+# Set in .env or export: OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY.
+openai_api_key: ${oc.env:OPENAI_API_KEY,""}
+anthropic_api_key: ${oc.env:ANTHROPIC_API_KEY,""}
+google_api_key: ${oc.env:GEMINI_API_KEY,""}
 
 # Optional: Custom API base URL (e.g. Azure, OpenAI-compatible proxies).
 api_base: ""
