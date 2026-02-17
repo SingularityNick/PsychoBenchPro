@@ -211,19 +211,21 @@ def example_generator(questionnaire, run):
 
                             result_string_list.append(result.strip())
 
-                            # Write the prompts and results to the file
-                            os.makedirs("prompts", exist_ok=True)
-                            os.makedirs("responses", exist_ok=True)
+                            # Write the prompts and results to the run-specific output dir
+                            prompts_dir = os.path.join(run.output_dir, "prompts")
+                            responses_dir = os.path.join(run.output_dir, "responses")
+                            os.makedirs(prompts_dir, exist_ok=True)
+                            os.makedirs(responses_dir, exist_ok=True)
 
-                            prompts_path = (
-                                f'prompts/{records_file}-{questionnaire["name"]}'
-                                f'-shuffle{shuffle_count - 1}.txt'
+                            prompts_path = os.path.join(
+                                prompts_dir,
+                                f'{records_file}-{questionnaire["name"]}-shuffle{shuffle_count - 1}.txt',
                             )
                             with open(prompts_path, "a") as file:
                                 file.write(f'{inputs}\n====\n')
-                            responses_path = (
-                                f'responses/{records_file}-{questionnaire["name"]}'
-                                f'-shuffle{shuffle_count - 1}.txt'
+                            responses_path = os.path.join(
+                                responses_dir,
+                                f'{records_file}-{questionnaire["name"]}-shuffle{shuffle_count - 1}.txt',
                             )
                             with open(responses_path, "a") as file:
                                 file.write(f'{result}\n====\n')
