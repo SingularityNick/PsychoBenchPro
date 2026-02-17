@@ -30,3 +30,4 @@ All notable changes to this project will be documented in this file.
 
 - **Dependency management**: Removed `requirements.txt` and `requirements-dev.txt`; dependencies are managed solely via `pyproject.toml` and uv. Python version is set in `pyproject.toml` (e.g. `>=3.11`).
 - **.gitignore**: Removed `.python-version` from ignore list so the project's Python version is tracked in the repo.
+- **CI (Tests workflow)**: Tests no longer run when only documentation files change. Added `paths-ignore` for `pull_request` and `push` to skip runs when changes are limited to `README*`, `CHANGELOG*`, `docs/**`, and `**.md`.
