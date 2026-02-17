@@ -41,18 +41,6 @@ def _model_name_for_files(model: str) -> str:
     return m
 
 
-def _provider_from_model(model: str) -> str:
-    """Map provider prefix to API key attribute: gemini -> google, anthropic -> anthropic, openai -> openai."""
-    prefix = _provider_prefix(model)
-    if prefix is None:
-        return "openai"  # fallback only when validation is skipped
-    if prefix == "gemini":
-        return "google"
-    if prefix in ("anthropic", "openai"):
-        return prefix
-    return "openai"
-
-
 def _validate_model_provider(model: str, allowed_providers: list) -> None:
     """Raise ValueError if model does not start with one of the allowed provider prefixes."""
     if not model or not (model := model.strip()):
@@ -201,7 +189,7 @@ def example_generator(questionnaire, run):
     model = run.model
     records_file = run.name_exp if run.name_exp is not None else _model_name_for_files(model)
 
-    allowed = getattr(run, "allowed_providers", None) or ["gemini", "anthropic", "openai"]
+    allowed = getattr(run, "allowed_providers", None) or ["gemini", "anthropic", "openai", "ollama"]
     _validate_model_provider(model, allowed)
     _validate_model_litellm(model)
 
