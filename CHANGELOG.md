@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Benchmark config**: `conf/benchmark.yaml` for running a Hydra multirun over multiple models without listing them on the CLI. Run with `uv run python run_psychobench.py --config-name benchmark`; edit `hydra.sweeper.params.model` in that file to change the model list. README updated with a "Benchmark config" subsection under Configuration.
 - **Multi-provider LLM support**: Model must use a provider prefix (e.g. `openai/gpt-4`, `anthropic/claude-3-5-sonnet`, `gemini/gemini-2.0-flash`, `ollama/llama2`). Config option `allowed_providers` (default: `gemini`, `anthropic`, `openai`, `ollama`) restricts which providers can be used. Validation runs at startup so invalid or unsupported models fail fast.
 - **Ollama provider**: Support for local models via [Ollama](https://ollama.ai/) using the `ollama/` prefix (e.g. `ollama/llama2`, `ollama/deepseek-r1:latest`). No API key required when using Ollama.
 - **Model name for file naming**: Response and prompt filenames use the model name without the provider prefix (e.g. `gpt-4-BFI-shuffle0.txt`) for cleaner output.
