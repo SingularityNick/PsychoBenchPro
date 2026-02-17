@@ -35,6 +35,10 @@ significance_level: 0.01
 # Pipeline mode: auto (full), generation, testing, or analysis.
 mode: auto
 
+# Sampling temperature for LLM calls (0 = deterministic; 1 = more random).
+# Some models (e.g. Gemini 3) recommend temperature=1.0; override per run if needed.
+temperature: 1
+
 # LiteLLM reads API keys from environment variables (e.g. OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY).
 
 # Optional: Custom API base URL (e.g. Azure, OpenAI-compatible proxies).

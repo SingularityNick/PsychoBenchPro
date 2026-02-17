@@ -63,6 +63,24 @@ def _validate_model_provider(model: str, allowed_providers: list) -> None:
         )
 
 
+def _validate_model_litellm(model: str) -> None:
+    """Raise ValueError if LiteLLM does not recognize the provider or model (fail fast before the loop)."""
+    try:
+        litellm.get_llm_provider(model)
+    except Exception as e:
+        raise ValueError(
+            f"LiteLLM could not resolve provider for model {model!r}. {e}"
+        ) from e
+    try:
+        litellm.get_model_info(model)
+    except Exception as e:
+        raise ValueError(
+            f"Model {model!r} is not in LiteLLM's model registry (unknown or unsupported). "
+            "Use a known model id (e.g. gemini/gemini-2.0-flash, openai/gpt-4). "
+            f"LiteLLM: {e}"
+        ) from e
+
+
 def _llm_completion(
     model: str,
     *,
@@ -177,6 +195,7 @@ def example_generator(questionnaire, run):
 
     allowed = getattr(run, "allowed_providers", None) or ["gemini", "anthropic", "openai"]
     _validate_model_provider(model, allowed)
+    _validate_model_litellm(model)
 
     api_base = getattr(run, "api_base", None) or ""
 
@@ -221,7 +240,10 @@ def example_generator(questionnaire, run):
                         for questions_string in questions_list:
                             result = ""
                             use_text_completion = _is_text_completion_model(model)
-                            api_kw = {"api_base": api_base} if api_base else {}
+                            temperature = getattr(run, "temperature", 0)
+                            api_kw = {"temperature": temperature}
+                            if api_base:
+                                api_kw["api_base"] = api_base
 
                             if use_text_completion:
                                 inner_setting = questionnaire["inner_setting"].replace(
