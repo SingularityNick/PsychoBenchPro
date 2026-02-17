@@ -3,7 +3,7 @@
 </div>
 
 <div align="center">
-
+    <img src="https://codecov.io/gh/SingularityNick/PsychoBenchPro/branch/main/graph/badge.svg" alt="Coverage" />
 </div>
 
 </div>
