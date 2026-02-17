@@ -8,6 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import sys
 import pandas as pd
+from loguru import logger
 from omegaconf import OmegaConf
 
 
@@ -93,7 +94,7 @@ def generate_testfile(questionnaire, run):
 def convert_data(questionnaire, testing_file):
     # Check testing_file exist
     if not os.path.exists(testing_file):
-        print("Testing file does not exist.")
+        logger.error("Testing file does not exist.")
         sys.exit(1)
 
     test_data = []
@@ -130,7 +131,7 @@ def convert_data(questionnaire, testing_file):
                         else:
                             column_data[int(row[start-1])] = int(row[column_index])
                     except ValueError:
-                        print(f'Column {column_index + 1} has error.')
+                        logger.error("Column {} has error.", column_index + 1)
                         sys.exit(1)
 
                 test_data.append(column_data)
@@ -502,7 +503,6 @@ def run_psychobench(cfg, generator):
 
         os.makedirs("results", exist_ok=True)
         os.makedirs("results/figures", exist_ok=True)
-
         if run.mode in ['generation', 'auto']:
             generate_testfile(questionnaire, run)
 
@@ -513,5 +513,5 @@ def run_psychobench(cfg, generator):
             try:
                 analysis_results(questionnaire, run)
             except Exception:
-                print(f'Unable to analysis {run.testing_file}.')
+                logger.exception("Unable to analysis {}.", run.testing_file)
 

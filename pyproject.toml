@@ -3,7 +3,7 @@ name = "psychobench-pro"
 version = "0.1.0"
 description = "Benchmarking LLMs' Psychological Portray (PsychoBench)"
 readme = "README.md"
-requires-python = ">=3.11,<3.12"
+requires-python = ">=3.11"
 dependencies = [
     "hydra-core>=1.3.0",
     "numpy>=1.21.0",
@@ -14,6 +14,7 @@ dependencies = [
     "openai>=1.0.0",
     "tenacity>=8.0.0",
     "tqdm>=4.64.0",
+    "loguru>=0.7.0",
 ]
 
 [dependency-groups]
