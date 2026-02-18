@@ -239,18 +239,10 @@ def convert_results_structured(result_json: str, column_header: str) -> list[int
         {"answers": [{"question_index": "1", "score": 5}, {"question_index": "2", "score": 3}, ...]}
 
     Expects one JSON object per call (the generator parses each API response separately).
-    Falls back to :func:`convert_results` if parsing fails.
+    Raises ValidationError if the response is not valid JSON matching QuestionnaireResponse.
     """
-    try:
-        parsed = QuestionnaireResponse.model_validate_json(result_json)
-        return [item.score for item in parsed.answers]
-    except Exception:
-        pass
-    logger.warning(
-        "Structured output parsing failed for {}; falling back to text parser.",
-        column_header,
-    )
-    return convert_results(result_json, column_header)
+    parsed = QuestionnaireResponse.model_validate_json(result_json.strip())
+    return [item.score for item in parsed.answers]
 
 
 def _build_structured_prompt(questionnaire: dict, questions_string: str) -> str:

@@ -2,6 +2,7 @@
 import sys
 
 import pytest
+from pydantic import ValidationError
 
 sys.path.insert(0, ".")  # noqa: E402
 
@@ -136,17 +137,10 @@ class TestConvertResultsStructured:
         result = convert_results_structured(raw, "test-col")
         assert result == [4, 2]
 
-    def test_invalid_json_falls_back_to_text_parser(self):
-        """When JSON parsing fails, falls back to legacy text parser."""
-        text = "1: 5\n2: 3\n3: 7"
-        result = convert_results_structured(text, "test-col")
-        assert result == [5, 3, 7]
-
-    def test_malformed_json_falls_back(self):
-        """Malformed JSON (missing quotes) triggers fallback."""
-        text = "{answers: bad}"
-        result = convert_results_structured(text, "test-col")
-        assert isinstance(result, list)
+    def test_invalid_json_raises(self):
+        """Invalid input raises ValidationError."""
+        with pytest.raises(ValidationError):
+            convert_results_structured("1: 5\n2: 3", "test-col")
 
     def test_scores_are_integers(self):
         raw = (
