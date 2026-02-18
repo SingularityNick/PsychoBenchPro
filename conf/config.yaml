@@ -50,6 +50,11 @@ temperature: 1.0
 # When false, falls back to the legacy text-based parsing (extract last digit per line).
 use_structured_output: true
 
+# Batch size for splitting questionnaire questions into chunks for LLM calls.
+# Default 30: questions are sent in batches of 30 per API call.
+# When null: no batching — the full questionnaire is sent as a single batch regardless of size.
+batch_size: 30
+
 # LiteLLM reads API keys from environment variables (e.g. OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY).
 
 # Optional: Custom API base URL (e.g. Azure, OpenAI-compatible proxies).

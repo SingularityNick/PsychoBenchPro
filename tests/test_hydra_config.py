@@ -39,11 +39,13 @@ class TestComposeAPI:
         assert hasattr(cfg, "api_base")
         assert hasattr(cfg, "allowed_providers")
         assert hasattr(cfg, "use_structured_output")
+        assert hasattr(cfg, "batch_size")
         assert cfg.mode == "auto"
+        assert cfg.batch_size == 30
         assert cfg.significance_level == 0.01
-        assert cfg.use_structured_output is False
-        # allowed_providers must match conf/config.yaml (no hardcoded list)
+        # use_structured_output and allowed_providers must match conf/config.yaml (no hardcoded values)
         expected = OmegaConf.load(CONFIG_FILE)
+        assert cfg.use_structured_output == expected.use_structured_output
         assert list(cfg.allowed_providers) == list(expected.allowed_providers)
         assert OmegaConf.is_config(cfg)
 
@@ -61,6 +63,24 @@ class TestComposeAPI:
         assert cfg.questionnaire == "BFI"
         assert cfg.mode == "generation"
         assert cfg.shuffle_count == 0
+
+    def test_compose_batch_size_null_no_batching(self):
+        """batch_size=null means no batching (full questionnaire as single batch)."""
+        with initialize(version_base=None, config_path=CONFIG_PATH):
+            cfg = compose(
+                config_name=CONFIG_NAME,
+                overrides=["batch_size=null"],
+            )
+        assert cfg.batch_size is None
+
+    def test_compose_batch_size_override(self):
+        """batch_size can be overridden to a custom value."""
+        with initialize(version_base=None, config_path=CONFIG_PATH):
+            cfg = compose(
+                config_name=CONFIG_NAME,
+                overrides=["batch_size=10"],
+            )
+        assert cfg.batch_size == 10
 
     def test_compose_questionnaire_comma_separated(self):
         """questionnaire=BFI,EPQ-R is preserved when quoted (Hydra treats unquoted comma as sweep)."""
