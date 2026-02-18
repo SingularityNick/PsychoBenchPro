@@ -538,7 +538,7 @@ def run_psychobench(cfg, generator):
 
     for questionnaire_name in questionnaire_list:
         questionnaire = get_questionnaire(questionnaire_name)
-        base = cfg.name_exp if cfg.name_exp is not None else _model_name_for_files(cfg.model)
+        base = _model_name_for_files(cfg.model)
         cfg_copy = OmegaConf.create(OmegaConf.to_container(cfg, resolve=True))
         OmegaConf.set_struct(cfg_copy, False)
         run = OmegaConf.merge(

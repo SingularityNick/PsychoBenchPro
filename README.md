@@ -80,15 +80,11 @@ All options are defined in `conf/config.yaml` and can be overridden from the com
 
 4. **test_count**: Number of runs per order. Default: 1.
 
-5. **name_exp**: Name of this run (used for result filenames). Default: use model name.
+5. **significance_level**: Significance level for hypothesis testing (human vs LLM means). Default: 0.01.
 
-6. **significance_level**: Significance level for hypothesis testing (human vs LLM means). Default: 0.01.
+6. **mode**: Pipeline stage: `auto` (full), `generation`, `testing`, or `analysis`. Default: `auto`.
 
-7. **mode**: Pipeline stage: `auto` (full), `generation`, `testing`, or `analysis`. Default: `auto`.
-
-8. **api_base**: Optional custom API base URL (e.g. Azure, OpenAI-compatible proxies). LiteLLM reads API keys from environment variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, etc.).
-
-9. **use_structured_output**: When `true`, the LLM is asked to return a structured JSON response conforming to a Pydantic schema instead of free text. This dramatically improves parsing reliability. Requires a model that supports JSON mode / structured output (most modern models from OpenAI, Anthropic, Gemini, etc. do). Falls back to the legacy text parser if JSON parsing fails. Default: `false`. Example: `use_structured_output=true`.
+7. **use_structured_output**: When `true`, the LLM is asked to return a structured JSON response conforming to a Pydantic schema instead of free text. This dramatically improves parsing reliability. Requires a model that supports JSON mode / structured output (most modern models from OpenAI, Anthropic, Gemini, etc. do). Falls back to the legacy text parser if JSON parsing fails. Default: `false`. Example: `use_structured_output=true`.
 
 ## 🦙 Benchmarking Your Own Model
 It is easy! Just replace the function `example_generator` fed into the function `run_psychobench(cfg, generator)`.

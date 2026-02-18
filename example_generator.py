@@ -118,7 +118,6 @@ def _llm_completion(
     n=1,
     max_tokens=1024,
     api_key=None,
-    api_base=None,
     delay=1,
     response_format=None,
 ):
@@ -140,8 +139,6 @@ def _llm_completion(
     }
     if api_key:
         kwargs["api_key"] = api_key
-    if api_base:
-        kwargs["base_url"] = api_base
     if messages is not None:
         kwargs["messages"] = messages
     elif prompt is not None:
@@ -177,7 +174,6 @@ def chat(
     n=1,
     max_tokens=1024,
     api_key=None,
-    api_base=None,
     delay=1,
     response_format=None,
 ):
@@ -189,7 +185,6 @@ def chat(
         n=n,
         max_tokens=max_tokens,
         api_key=api_key,
-        api_base=api_base,
         delay=delay,
         response_format=response_format,
     )
@@ -203,7 +198,6 @@ def completion(
     n=1,
     max_tokens=1024,
     api_key=None,
-    api_base=None,
     delay=1,
 ):
     """Text completion for legacy models (text-davinci-003, etc.)."""
@@ -214,7 +208,6 @@ def completion(
         n=n,
         max_tokens=max_tokens,
         api_key=api_key,
-        api_base=api_base,
         delay=delay,
     )
 
@@ -273,13 +266,12 @@ def _build_structured_prompt(questionnaire: dict, questions_string: str) -> str:
 def example_generator(questionnaire, run):
     testing_file = run.testing_file
     model = run.model
-    records_file = run.name_exp if run.name_exp is not None else _model_name_for_files(model)
+    records_file = _model_name_for_files(model)
 
     allowed = getattr(run, "allowed_providers", None) or ["gemini", "anthropic", "openai", "ollama"]
     _validate_model_provider(model, allowed)
     _validate_model_litellm(model)
 
-    api_base = getattr(run, "api_base", None) or ""
     use_structured = getattr(run, "use_structured_output", False)
 
     if use_structured:
@@ -335,8 +327,6 @@ def example_generator(questionnaire, run):
                             use_text_completion = _is_text_completion_model(model)
                             temperature = getattr(run, "temperature", 0)
                             api_kw = {"temperature": temperature}
-                            if api_base:
-                                api_kw["api_base"] = api_base
 
                             if use_text_completion:
                                 inner_setting = questionnaire["inner_setting"].replace(
