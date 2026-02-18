@@ -44,6 +44,10 @@ mode: auto
 # Some models (e.g. Gemini 3) recommend temperature=1.0; override per run if needed.
 temperature: 1.0
 
+# Number of questions per LLM call (batch size). Default is 30.
+# Set to null to disable batching (send the full questionnaire in a single call).
+batch_size: 30
+
 # Use structured output (JSON mode with a Pydantic schema) for more reliable response parsing.
 # When true, the LLM is asked to return a JSON object matching a schema instead of free text.
 # Requires a model that supports structured output / JSON mode (most modern models do).
