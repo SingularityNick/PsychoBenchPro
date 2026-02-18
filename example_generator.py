@@ -152,7 +152,6 @@ def _llm_completion(
     n=1,
     max_tokens=1024,
     api_key=None,
-    api_base=None,
     delay=1,
     response_format=None,
 ):
@@ -174,8 +173,6 @@ def _llm_completion(
     }
     if api_key:
         kwargs["api_key"] = api_key
-    if api_base:
-        kwargs["base_url"] = api_base
     if messages is not None:
         kwargs["messages"] = messages
     elif prompt is not None:
@@ -211,7 +208,6 @@ def chat(
     n=1,
     max_tokens=1024,
     api_key=None,
-    api_base=None,
     delay=1,
     response_format=None,
 ):
@@ -223,7 +219,6 @@ def chat(
         n=n,
         max_tokens=max_tokens,
         api_key=api_key,
-        api_base=api_base,
         delay=delay,
         response_format=response_format,
     )
@@ -237,7 +232,6 @@ def completion(
     n=1,
     max_tokens=1024,
     api_key=None,
-    api_base=None,
     delay=1,
 ):
     """Text completion for legacy models (text-davinci-003, etc.)."""
@@ -248,7 +242,6 @@ def completion(
         n=n,
         max_tokens=max_tokens,
         api_key=api_key,
-        api_base=api_base,
         delay=delay,
     )
 
@@ -332,15 +325,15 @@ def _build_structured_prompt(
 def example_generator(questionnaire, run):
     testing_file = run.testing_file
     model = run.model
-    records_file = run.name_exp if run.name_exp is not None else _model_name_for_files(model)
+    records_file = _model_name_for_files(model)
 
     allowed = getattr(run, "allowed_providers", None) or ["gemini", "anthropic", "openai", "ollama"]
     _validate_model_provider(model, allowed)
     _validate_model_litellm(model)
 
-    api_base = getattr(run, "api_base", None) or ""
     use_structured = getattr(run, "use_structured_output", False)
     include_notes = use_structured and getattr(run, "structured_output_notes", False)
+    max_retries = int(getattr(run, "max_parse_failure_retries", 3))
 
     if use_structured:
         logger.info("Structured output mode enabled — responses will be parsed as JSON.")
@@ -386,7 +379,7 @@ def example_generator(questionnaire, run):
                     # Insert the updated column into the DataFrame with a unique identifier in the header
                     column_header = f'shuffle{shuffle_count - 1}-test{k}'
 
-                    while(True):
+                    for _retry in range(1 + max_retries):
                         result_string_list = []
                         previous_records = []
                         if use_structured:
@@ -397,8 +390,6 @@ def example_generator(questionnaire, run):
                             use_text_completion = _is_text_completion_model(model)
                             temperature = getattr(run, "temperature", 0)
                             api_kw = {"temperature": temperature}
-                            if api_base:
-                                api_kw["api_base"] = api_base
 
                             if use_text_completion:
                                 inner_setting = questionnaire["inner_setting"].replace(
@@ -483,7 +474,20 @@ def example_generator(questionnaire, run):
                                 insert_count += 1
                             break
                         except Exception:
-                            logger.warning("Unable to capture the responses on {}.", column_header)
+                            remaining = max_retries - _retry
+                            if remaining > 0:
+                                logger.warning(
+                                    "Parse failure on {} (attempt {}/{}); retrying…",
+                                    column_header,
+                                    _retry + 1,
+                                    1 + max_retries,
+                                )
+                            else:
+                                logger.error(
+                                    "Parse failure on {} after {} attempt(s); skipping column.",
+                                    column_header,
+                                    1 + max_retries,
+                                )
 
                     # Write the updated DataFrame back to the CSV file
                     df.to_csv(testing_file, index=False)
