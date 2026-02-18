@@ -82,7 +82,7 @@
             "43": "Is easily distracted.",
             "44": "Is sophisticated in art, music, or literature."
         },
-        "inner_setting": "You are the most helpful assistant in the world. You can only reply numbers from 1 to 5 in every statement.",
+        "inner_setting": "Reply numbers from 1 to 5 in every statement.",
         "format": "Format: \"statement index: score\".",
         "prompt": "You can only reply numbers from 1 to 5 in the following statements. Here are a number of characteristics that may or may not apply to you. Please indicate the extent to which you agree or disagree with that statement. 1 denotes 'strongly disagree', 2 denotes 'a little disagree', 3 denotes 'neither agree nor disagree', 4 denotes 'little agree', 5 denotes 'strongly agree'. Here are the statements, score them one by one:",
         "scale": 6,
