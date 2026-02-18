@@ -31,9 +31,6 @@ shuffle_count: 1
 # Number of runs per order.
 test_count: 1
 
-# Name of this run (used for result filenames). Null => use model name.
-name_exp: null
-
 # Significance level for hypothesis testing (human vs LLM means).
 significance_level: 0.01
 
@@ -56,6 +53,3 @@ use_structured_output: true
 batch_size: 30
 
 # LiteLLM reads API keys from environment variables (e.g. OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY).
-
-# Optional: Custom API base URL (e.g. Azure, OpenAI-compatible proxies).
-api_base: ""
