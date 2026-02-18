@@ -39,15 +39,33 @@ class TestComposeAPI:
         assert hasattr(cfg, "api_base")
         assert hasattr(cfg, "allowed_providers")
         assert hasattr(cfg, "use_structured_output")
+        assert hasattr(cfg, "structured_output_notes")
         assert hasattr(cfg, "batch_size")
         assert cfg.mode == "auto"
         assert cfg.batch_size == 30
         assert cfg.significance_level == 0.01
-        # use_structured_output and allowed_providers must match conf/config.yaml (no hardcoded values)
+        # use_structured_output, structured_output_notes, and allowed_providers
+        # must match conf/config.yaml (no hardcoded values)
         expected = OmegaConf.load(CONFIG_FILE)
         assert cfg.use_structured_output == expected.use_structured_output
+        assert cfg.structured_output_notes == expected.structured_output_notes
         assert list(cfg.allowed_providers) == list(expected.allowed_providers)
         assert OmegaConf.is_config(cfg)
+
+    def test_structured_output_notes_defaults_true(self):
+        """structured_output_notes defaults to true in config."""
+        with initialize(version_base=None, config_path=CONFIG_PATH):
+            cfg = compose(config_name=CONFIG_NAME)
+        assert cfg.structured_output_notes is True
+
+    def test_structured_output_notes_override_false(self):
+        """structured_output_notes can be overridden to false."""
+        with initialize(version_base=None, config_path=CONFIG_PATH):
+            cfg = compose(
+                config_name=CONFIG_NAME,
+                overrides=["structured_output_notes=false"],
+            )
+        assert cfg.structured_output_notes is False
 
     def test_compose_overrides_apply(self):
         """CLI-style overrides are applied to composed config."""
