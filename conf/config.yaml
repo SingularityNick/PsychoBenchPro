@@ -1,6 +1,9 @@
 # Default config for PsychoBench. Override any key from the CLI, e.g.:
 #   python run_psychobench.py model=gpt-4 questionnaire=BFI,EPQ-R
 # Each run creates a timestamped output directory under results/.
+defaults:
+  - override hydra/launcher: joblib
+
 hydra:
   run:
     dir: results/${now:%Y-%m-%d}/${now:%H-%M-%S}
@@ -39,7 +42,18 @@ mode: auto
 
 # Sampling temperature for LLM calls (0 = deterministic; 1 = more random).
 # Some models (e.g. Gemini 3) recommend temperature=1.0; override per run if needed.
-temperature: 0.01
+temperature: 1.0
+
+# Use structured output (JSON mode with a Pydantic schema) for more reliable response parsing.
+# When true, the LLM is asked to return a JSON object matching a schema instead of free text.
+# Requires a model that supports structured output / JSON mode (most modern models do).
+# When false, falls back to the legacy text-based parsing (extract last digit per line).
+use_structured_output: true
+
+# Batch size for splitting questionnaire questions into chunks for LLM calls.
+# Default 30: questions are sent in batches of 30 per API call.
+# When null: no batching — the full questionnaire is sent as a single batch regardless of size.
+batch_size: 30
 
 # LiteLLM reads API keys from environment variables (e.g. OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY).
 
