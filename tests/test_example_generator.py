@@ -55,7 +55,11 @@ class TestQuestionnaireResponse:
     """Tests for the Pydantic structured output model."""
 
     def test_valid_json_parses(self):
-        raw = '{"answers": [{"question_index": "1", "score": 5}, {"question_index": "2", "score": 3}, {"question_index": "3", "score": 7}]}'
+        raw = (
+            '{"answers": [{"question_index": "1", "score": 5},'
+            ' {"question_index": "2", "score": 3},'
+            ' {"question_index": "3", "score": 7}]}'
+        )
         resp = QuestionnaireResponse.model_validate_json(raw)
         assert len(resp.answers) == 3
         assert resp.answers[0].question_index == "1"
@@ -109,7 +113,11 @@ class TestConvertResultsStructured:
     """Tests for the structured JSON response parser."""
 
     def test_valid_new_format_returns_scores(self):
-        raw = '{"answers": [{"question_index": "1", "score": 5}, {"question_index": "2", "score": 3}, {"question_index": "3", "score": 7}]}'
+        raw = (
+            '{"answers": [{"question_index": "1", "score": 5},'
+            ' {"question_index": "2", "score": 3},'
+            ' {"question_index": "3", "score": 7}]}'
+        )
         result = convert_results_structured(raw, "test-col")
         assert result == [5, 3, 7]
 
@@ -126,7 +134,11 @@ class TestConvertResultsStructured:
 
     def test_json_with_extra_keys_still_parsed(self):
         """Response may include $defs or other schema keys; parser uses only 'answers'."""
-        raw = '{"$defs": {"AnswerItem": {}}, "answers": [{"question_index": "1", "score": 4}, {"question_index": "2", "score": 2}]}'
+        raw = (
+            '{"$defs": {"AnswerItem": {}},'
+            ' "answers": [{"question_index": "1", "score": 4},'
+            ' {"question_index": "2", "score": 2}]}'
+        )
         result = convert_results_structured(raw, "test-col")
         assert result == [4, 2]
 
@@ -143,7 +155,11 @@ class TestConvertResultsStructured:
         assert isinstance(result, list)
 
     def test_scores_are_integers(self):
-        raw = '{"answers": [{"question_index": "1", "score": 1}, {"question_index": "2", "score": 7}, {"question_index": "3", "score": 4}]}'
+        raw = (
+            '{"answers": [{"question_index": "1", "score": 1},'
+            ' {"question_index": "2", "score": 7},'
+            ' {"question_index": "3", "score": 4}]}'
+        )
         result = convert_results_structured(raw, "test-col")
         assert all(isinstance(s, int) for s in result)
 
