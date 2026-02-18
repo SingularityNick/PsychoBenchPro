@@ -1,9 +1,17 @@
-"""Unit tests for example_generator multi-provider LLM support."""
+"""Unit tests for example_generator multi-provider LLM support and structured output."""
 import sys
+
+import pytest
 
 sys.path.insert(0, ".")  # noqa: E402
 
-from example_generator import _is_text_completion_model
+from example_generator import (
+    QuestionnaireResponse,
+    _build_structured_prompt,
+    _is_text_completion_model,
+    convert_results,
+    convert_results_structured,
+)
 
 
 class TestIsTextCompletionModel:
@@ -36,3 +44,171 @@ class TestIsTextCompletionModel:
     def test_gemini_models_not_text_completion(self):
         assert _is_text_completion_model("gemini/gemini-pro") is False
         assert _is_text_completion_model("google/gemini-1.5-flash") is False
+
+
+# ---------------------------------------------------------------------------
+# QuestionnaireResponse Pydantic model
+# ---------------------------------------------------------------------------
+
+
+class TestQuestionnaireResponse:
+    """Tests for the Pydantic structured output model."""
+
+    def test_valid_json_parses(self):
+        raw = (
+            '{"answers": [{"question_index": "1", "score": 5},'
+            ' {"question_index": "2", "score": 3},'
+            ' {"question_index": "3", "score": 7}]}'
+        )
+        resp = QuestionnaireResponse.model_validate_json(raw)
+        assert len(resp.answers) == 3
+        assert resp.answers[0].question_index == "1"
+        assert resp.answers[0].score == 5
+        assert resp.answers[2].question_index == "3"
+        assert resp.answers[2].score == 7
+
+    def test_empty_answers_list(self):
+        raw = '{"answers": []}'
+        resp = QuestionnaireResponse.model_validate_json(raw)
+        assert resp.answers == []
+
+    def test_missing_answers_key_raises(self):
+        raw = '{"scores": [1, 2, 3]}'
+        with pytest.raises(ValueError):
+            QuestionnaireResponse.model_validate_json(raw)
+
+    def test_missing_required_field_raises(self):
+        raw = '{"answers": [{"question_index": "1"}]}'
+        with pytest.raises(ValueError):
+            QuestionnaireResponse.model_validate_json(raw)
+
+    def test_non_integer_score_raises(self):
+        raw = '{"answers": [{"question_index": "1", "score": "high"}]}'
+        with pytest.raises(ValueError):
+            QuestionnaireResponse.model_validate_json(raw)
+
+    def test_schema_generation(self):
+        """The model can generate a JSON schema (used by LiteLLM for structured output)."""
+        schema = QuestionnaireResponse.model_json_schema()
+        assert "answers" in schema.get("properties", {})
+        assert schema["properties"]["answers"]["type"] == "array"
+        items = schema["properties"]["answers"].get("items", {})
+        if "$ref" in items:
+            defs = schema.get("$defs", {})
+            ref_name = items["$ref"].split("/")[-1]
+            item_schema = defs.get(ref_name, {})
+        else:
+            item_schema = items
+        assert "required" in item_schema
+        assert "question_index" in item_schema["required"]
+        assert "score" in item_schema["required"]
+
+
+# ---------------------------------------------------------------------------
+# convert_results_structured
+# ---------------------------------------------------------------------------
+
+
+class TestConvertResultsStructured:
+    """Tests for the structured JSON response parser."""
+
+    def test_valid_new_format_returns_scores(self):
+        raw = (
+            '{"answers": [{"question_index": "1", "score": 5},'
+            ' {"question_index": "2", "score": 3},'
+            ' {"question_index": "3", "score": 7}]}'
+        )
+        result = convert_results_structured(raw, "test-col")
+        assert result == [5, 3, 7]
+
+    def test_empty_answers_returns_empty(self):
+        raw = '{"answers": []}'
+        result = convert_results_structured(raw, "test-col")
+        assert result == []
+
+    def test_json_with_extra_keys_still_parsed(self):
+        """Response may include $defs or other schema keys; parser uses only 'answers'."""
+        raw = (
+            '{"$defs": {"AnswerItem": {}},'
+            ' "answers": [{"question_index": "1", "score": 4},'
+            ' {"question_index": "2", "score": 2}]}'
+        )
+        result = convert_results_structured(raw, "test-col")
+        assert result == [4, 2]
+
+    def test_invalid_json_falls_back_to_text_parser(self):
+        """When JSON parsing fails, falls back to legacy text parser."""
+        text = "1: 5\n2: 3\n3: 7"
+        result = convert_results_structured(text, "test-col")
+        assert result == [5, 3, 7]
+
+    def test_malformed_json_falls_back(self):
+        """Malformed JSON (missing quotes) triggers fallback."""
+        text = "{answers: bad}"
+        result = convert_results_structured(text, "test-col")
+        assert isinstance(result, list)
+
+    def test_scores_are_integers(self):
+        raw = (
+            '{"answers": [{"question_index": "1", "score": 1},'
+            ' {"question_index": "2", "score": 7},'
+            ' {"question_index": "3", "score": 4}]}'
+        )
+        result = convert_results_structured(raw, "test-col")
+        assert all(isinstance(s, int) for s in result)
+
+
+# ---------------------------------------------------------------------------
+# _build_structured_prompt
+# ---------------------------------------------------------------------------
+
+
+class TestBuildStructuredPrompt:
+    """Tests for the structured output prompt builder."""
+
+    def test_includes_questions(self):
+        q = {"prompt": "Rate these:", "inner_setting": "You are a helper."}
+        questions = "1. I am talkative.\n2. I am reserved."
+        prompt = _build_structured_prompt(q, questions)
+        assert "1. I am talkative." in prompt
+        assert "2. I am reserved." in prompt
+
+    def test_includes_json_format_instructions(self):
+        q = {"prompt": "Rate these:", "inner_setting": "You are a helper."}
+        prompt = _build_structured_prompt(q, "1. Q1")
+        assert "JSON" in prompt
+        assert '"answers"' in prompt
+        assert "question_index" in prompt
+        assert "score" in prompt
+        assert '{"question_index": "1", "score": <score>}' in prompt
+
+    def test_includes_base_prompt(self):
+        q = {"prompt": "Please evaluate yourself.", "inner_setting": "You are a helper."}
+        prompt = _build_structured_prompt(q, "1. Q1")
+        assert "Please evaluate yourself." in prompt
+
+
+# ---------------------------------------------------------------------------
+# convert_results (legacy parser — ensure no regression)
+# ---------------------------------------------------------------------------
+
+
+class TestConvertResultsLegacy:
+    """Regression tests for the legacy text parser."""
+
+    def test_standard_format(self):
+        text = "1: 5\n2: 3\n3: 7"
+        assert convert_results(text, "col") == [5, 3, 7]
+
+    def test_empty_lines_ignored(self):
+        text = "1: 5\n\n2: 3\n\n3: 7"
+        assert convert_results(text, "col") == [5, 3, 7]
+
+    def test_whitespace_stripped(self):
+        text = "  1: 5  \n  2: 3  "
+        assert convert_results(text, "col") == [5, 3]
+
+    def test_unparseable_returns_empty_strings(self):
+        text = "no scores here\nanother line"
+        result = convert_results(text, "col")
+        assert all(v == "" for v in result)
