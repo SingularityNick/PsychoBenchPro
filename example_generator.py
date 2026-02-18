@@ -263,8 +263,8 @@ def _build_structured_prompt(questionnaire: dict, questions_string: str) -> str:
     base_prompt = questionnaire["prompt"]
     return (
         f"{base_prompt}\n{questions_string}\n\n"
-        "Respond ONLY with a JSON object in this exact format (no markdown, no extra text):\n"
-        '{"answers": [{"question_index": "1", "score": 5}, ...]}\n'
+        "Respond with a JSON object in this format: "
+        '{"answers": [{"question_index": "1", "score": <score>}, ...]}\n'
         "where question_index is the 1-based question number as a string and "
         "score is your integer rating."
     )
