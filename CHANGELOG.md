@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Structured output schema**: Response schema now uses required `question_index` and `score` per answer (Pydantic `AnswerItem`) so models (e.g. Gemini) no longer return empty objects. Parser still returns the same `list[int]` in question order and accepts the old format `[{"1": 5}, {"2": 3}]` for backward compatibility.
+
 ### Added
 
 - **Optional structured output**: New config option `use_structured_output` (default: `false`) enables JSON-mode structured output for LLM responses. When enabled, the LLM is asked to return answers as a JSON object conforming to a Pydantic schema (`QuestionnaireResponse`), which is far more reliable than the legacy text-based "last digit per line" parser. Requires a model that supports structured output / JSON mode (most modern models do). Falls back gracefully to the legacy parser if JSON parsing fails. Enable with `use_structured_output=true` on the CLI or in `conf/config.yaml`.

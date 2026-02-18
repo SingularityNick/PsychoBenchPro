@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import time
@@ -25,19 +26,30 @@ TEXT_COMPLETION_MODEL_PATTERN = re.compile(
 # Pydantic model for structured LLM output
 # ---------------------------------------------------------------------------
 
+
+class AnswerItem(BaseModel):
+    """One questionnaire answer: 1-based question index and integer score."""
+
+    question_index: str = Field(
+        ...,
+        description="1-based question number as string, e.g. '1', '2'.",
+    )
+    score: int = Field(
+        ...,
+        description="Integer rating for that question.",
+    )
+
+
 class QuestionnaireResponse(BaseModel):
     """Structured response from the LLM for a batch of questionnaire items.
 
-    Each element in `answers` is a dict mapping the 1-based question index
-    (as a string) to the integer score the model chose.
+    Each element in `answers` is an AnswerItem with question_index (string) and
+    score (int). Old format [{\"1\": 5}, {\"2\": 3}] is still accepted by the parser.
     """
 
-    answers: list[dict[str, int]] = Field(
+    answers: list[AnswerItem] = Field(
         ...,
-        description=(
-            "List of answers. Each element is an object mapping the question "
-            "index (string) to the integer score, e.g. [{\"1\": 5}, {\"2\": 3}]."
-        ),
+        description="List of answers, one per question, in order.",
     )
 
 
@@ -220,44 +232,78 @@ def convert_results(result, column_header):
     return result_list
 
 
-def convert_results_structured(result_json: str, column_header: str) -> list[int]:
-    """Parse a structured JSON LLM response into a flat list of integer scores.
+def _extract_scores_from_answers(answers: list) -> list[int] | None:
+    """Extract a list of integer scores from an 'answers' list (new or old format). Returns None if invalid."""
+    scores: list[int] = []
+    for item in answers:
+        if not isinstance(item, dict) or not item:
+            return None
+        if "score" in item:
+            try:
+                scores.append(int(item["score"]))
+            except (TypeError, ValueError):
+                return None
+        else:
+            # Old format: single key -> value per item
+            for _key, val in item.items():
+                try:
+                    scores.append(int(val))
+                except (TypeError, ValueError):
+                    return None
+                break
+    if len(scores) != len(answers):
+        return None
+    return scores
 
-    The expected JSON format matches :class:`QuestionnaireResponse`::
+
+def convert_results_structured(result_json: str, column_header: str) -> list[int]:
+    """Parse a single structured JSON LLM response into a flat list of integer scores.
+
+    Preferred format (matches :class:`QuestionnaireResponse`)::
+
+        {"answers": [{"question_index": "1", "score": 5}, {"question_index": "2", "score": 3}, ...]}
+
+    Old format is also accepted for backward compatibility::
 
         {"answers": [{"1": 5}, {"2": 3}, ...]}
 
+    Expects one JSON object per call (the generator parses each API response separately).
     Falls back to :func:`convert_results` if parsing fails.
     """
     try:
         parsed = QuestionnaireResponse.model_validate_json(result_json)
-        scores: list[int] = []
-        for answer_obj in parsed.answers:
-            for _idx, score in answer_obj.items():
-                scores.append(int(score))
-        return scores
+        return [item.score for item in parsed.answers]
     except Exception:
-        logger.warning(
-            "Structured output parsing failed for {}; falling back to text parser.",
-            column_header,
-        )
-        return convert_results(result_json, column_header)
+        pass
+    try:
+        data = json.loads(result_json)
+        if isinstance(data.get("answers"), list):
+            scores = _extract_scores_from_answers(data["answers"])
+            if scores is not None:
+                return scores
+    except Exception:
+        pass
+    logger.warning(
+        "Structured output parsing failed for {}; falling back to text parser.",
+        column_header,
+    )
+    return convert_results(result_json, column_header)
 
 
 def _build_structured_prompt(questionnaire: dict, questions_string: str) -> str:
     """Return a prompt that asks the LLM to respond as structured JSON.
 
     The prompt instructs the model to return a JSON object matching
-    :class:`QuestionnaireResponse` instead of the legacy "index: score" text
-    format.
+    :class:`QuestionnaireResponse` (answers as list of question_index/score
+    objects) instead of the legacy "index: score" text format.
     """
     base_prompt = questionnaire["prompt"]
     return (
         f"{base_prompt}\n{questions_string}\n\n"
         "Respond ONLY with a JSON object in this exact format (no markdown, no extra text):\n"
-        '{"answers": [{"<question_index>": <score>}, ...]}\n'
-        "where <question_index> is the 1-based question number as a string and "
-        "<score> is your integer rating."
+        '{"answers": [{"question_index": "1", "score": 5}, ...]}\n'
+        "where question_index is the 1-based question number as a string and "
+        "score is your integer rating."
     )
 
 
@@ -313,6 +359,8 @@ def example_generator(questionnaire, run):
                     while(True):
                         result_string_list = []
                         previous_records = []
+                        if use_structured:
+                            all_scores: list[int] = []
 
                         for questions_string in questions_list:
                             result = ""
@@ -361,6 +409,10 @@ def example_generator(questionnaire, run):
                                 previous_records.append({"role": "assistant", "content": result})
 
                             result_string_list.append(result.strip())
+                            if use_structured:
+                                all_scores.extend(
+                                    convert_results_structured(result.strip(), column_header)
+                                )
 
                             # Write the prompts and results to the run-specific output dir
                             prompts_dir = os.path.join(run.output_dir, "prompts")
@@ -381,11 +433,10 @@ def example_generator(questionnaire, run):
                             with open(responses_path, "a") as file:
                                 file.write(f'{result}\n====\n')
 
-                        result_string = '\n'.join(result_string_list)
-
                         if use_structured:
-                            result_list = convert_results_structured(result_string, column_header)
+                            result_list = all_scores
                         else:
+                            result_string = '\n'.join(result_string_list)
                             result_list = convert_results(result_string, column_header)
 
                         try:

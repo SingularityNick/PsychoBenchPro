@@ -48,7 +48,7 @@ temperature: 1.0
 # When true, the LLM is asked to return a JSON object matching a schema instead of free text.
 # Requires a model that supports structured output / JSON mode (most modern models do).
 # When false, falls back to the legacy text-based parsing (extract last digit per line).
-use_structured_output: false
+use_structured_output: true
 
 # LiteLLM reads API keys from environment variables (e.g. OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY).
 

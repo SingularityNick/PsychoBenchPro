@@ -55,11 +55,13 @@ class TestQuestionnaireResponse:
     """Tests for the Pydantic structured output model."""
 
     def test_valid_json_parses(self):
-        raw = '{"answers": [{"1": 5}, {"2": 3}, {"3": 7}]}'
+        raw = '{"answers": [{"question_index": "1", "score": 5}, {"question_index": "2", "score": 3}, {"question_index": "3", "score": 7}]}'
         resp = QuestionnaireResponse.model_validate_json(raw)
         assert len(resp.answers) == 3
-        assert resp.answers[0] == {"1": 5}
-        assert resp.answers[2] == {"3": 7}
+        assert resp.answers[0].question_index == "1"
+        assert resp.answers[0].score == 5
+        assert resp.answers[2].question_index == "3"
+        assert resp.answers[2].score == 7
 
     def test_empty_answers_list(self):
         raw = '{"answers": []}'
@@ -71,8 +73,13 @@ class TestQuestionnaireResponse:
         with pytest.raises(ValueError):
             QuestionnaireResponse.model_validate_json(raw)
 
+    def test_missing_required_field_raises(self):
+        raw = '{"answers": [{"question_index": "1"}]}'
+        with pytest.raises(ValueError):
+            QuestionnaireResponse.model_validate_json(raw)
+
     def test_non_integer_score_raises(self):
-        raw = '{"answers": [{"1": "high"}]}'
+        raw = '{"answers": [{"question_index": "1", "score": "high"}]}'
         with pytest.raises(ValueError):
             QuestionnaireResponse.model_validate_json(raw)
 
@@ -81,6 +88,16 @@ class TestQuestionnaireResponse:
         schema = QuestionnaireResponse.model_json_schema()
         assert "answers" in schema.get("properties", {})
         assert schema["properties"]["answers"]["type"] == "array"
+        items = schema["properties"]["answers"].get("items", {})
+        if "$ref" in items:
+            defs = schema.get("$defs", {})
+            ref_name = items["$ref"].split("/")[-1]
+            item_schema = defs.get(ref_name, {})
+        else:
+            item_schema = items
+        assert "required" in item_schema
+        assert "question_index" in item_schema["required"]
+        assert "score" in item_schema["required"]
 
 
 # ---------------------------------------------------------------------------
@@ -91,21 +108,27 @@ class TestQuestionnaireResponse:
 class TestConvertResultsStructured:
     """Tests for the structured JSON response parser."""
 
-    def test_valid_json_returns_scores(self):
-        raw = '{"answers": [{"1": 5}, {"2": 3}, {"3": 7}]}'
+    def test_valid_new_format_returns_scores(self):
+        raw = '{"answers": [{"question_index": "1", "score": 5}, {"question_index": "2", "score": 3}, {"question_index": "3", "score": 7}]}'
         result = convert_results_structured(raw, "test-col")
         assert result == [5, 3, 7]
 
-    def test_multiple_keys_per_answer(self):
-        """Each answer dict may have multiple keys; all values are collected."""
-        raw = '{"answers": [{"1": 5, "2": 3}, {"3": 7}]}'
+    def test_old_format_still_parsed(self):
+        """Backward compatibility: old format [{\"1\": 5}, {\"2\": 3}] still works."""
+        raw = '{"answers": [{"1": 5}, {"2": 3}]}'
         result = convert_results_structured(raw, "test-col")
-        assert result == [5, 3, 7]
+        assert result == [5, 3]
 
     def test_empty_answers_returns_empty(self):
         raw = '{"answers": []}'
         result = convert_results_structured(raw, "test-col")
         assert result == []
+
+    def test_json_with_extra_keys_still_parsed(self):
+        """Response may include $defs or other schema keys; parser uses only 'answers'."""
+        raw = '{"$defs": {"AnswerItem": {}}, "answers": [{"question_index": "1", "score": 4}, {"question_index": "2", "score": 2}]}'
+        result = convert_results_structured(raw, "test-col")
+        assert result == [4, 2]
 
     def test_invalid_json_falls_back_to_text_parser(self):
         """When JSON parsing fails, falls back to legacy text parser."""
@@ -120,7 +143,7 @@ class TestConvertResultsStructured:
         assert isinstance(result, list)
 
     def test_scores_are_integers(self):
-        raw = '{"answers": [{"1": 1}, {"2": 7}, {"3": 4}]}'
+        raw = '{"answers": [{"question_index": "1", "score": 1}, {"question_index": "2", "score": 7}, {"question_index": "3", "score": 4}]}'
         result = convert_results_structured(raw, "test-col")
         assert all(isinstance(s, int) for s in result)
 
@@ -145,6 +168,9 @@ class TestBuildStructuredPrompt:
         prompt = _build_structured_prompt(q, "1. Q1")
         assert "JSON" in prompt
         assert '"answers"' in prompt
+        assert "question_index" in prompt
+        assert "score" in prompt
+        assert '{"question_index": "1", "score": 5}' in prompt
 
     def test_includes_base_prompt(self):
         q = {"prompt": "Please evaluate yourself.", "inner_setting": "You are a helper."}
