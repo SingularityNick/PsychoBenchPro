@@ -55,6 +55,10 @@ use_structured_output: true
 # When null: no batching — the full questionnaire is sent as a single batch regardless of size.
 batch_size: 30
 
+# Max retries when response parsing/capture fails (e.g. malformed JSON, length mismatch).
+# When exceeded, the run raises an error instead of retrying indefinitely.
+max_parse_failure_retries: 3
+
 # LiteLLM reads API keys from environment variables (e.g. OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY).
 
 # Optional: Custom API base URL (e.g. Azure, OpenAI-compatible proxies).

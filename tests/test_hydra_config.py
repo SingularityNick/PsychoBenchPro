@@ -40,8 +40,10 @@ class TestComposeAPI:
         assert hasattr(cfg, "allowed_providers")
         assert hasattr(cfg, "use_structured_output")
         assert hasattr(cfg, "batch_size")
+        assert hasattr(cfg, "max_parse_failure_retries")
         assert cfg.mode == "auto"
         assert cfg.batch_size == 30
+        assert cfg.max_parse_failure_retries == 3
         assert cfg.significance_level == 0.01
         # use_structured_output and allowed_providers must match conf/config.yaml (no hardcoded values)
         expected = OmegaConf.load(CONFIG_FILE)
@@ -81,6 +83,15 @@ class TestComposeAPI:
                 overrides=["batch_size=10"],
             )
         assert cfg.batch_size == 10
+
+    def test_compose_max_parse_failure_retries_override(self):
+        """max_parse_failure_retries can be overridden."""
+        with initialize(version_base=None, config_path=CONFIG_PATH):
+            cfg = compose(
+                config_name=CONFIG_NAME,
+                overrides=["max_parse_failure_retries=5"],
+            )
+        assert cfg.max_parse_failure_retries == 5
 
     def test_compose_questionnaire_comma_separated(self):
         """questionnaire=BFI,EPQ-R is preserved when quoted (Hydra treats unquoted comma as sweep)."""
@@ -190,3 +201,64 @@ class TestRunPsychobenchWithComposedConfig:
         assert "Prompt:" in content
         assert "order-0" in content
         assert "shuffle0-test0" in content
+
+    def test_max_parse_failure_retries_raises_after_exhausted(
+        self, tmp_path, monkeypatch
+    ):
+        """When parse/capture fails max_parse_failure_retries times, RuntimeError is raised."""
+        minimal_questionnaire = {
+            "name": "BFI",
+            "prompt": "Test prompt",
+            "inner_setting": "You are a helper.",
+            "questions": {"1": "Q1", "2": "Q2", "3": "Q3"},
+            "scale": 5,
+            "compute_mode": "AVG",
+            "reverse": [],
+            "categories": [],
+        }
+
+        def fake_get_questionnaire(name):
+            assert name == "BFI"
+            return minimal_questionnaire
+
+        import example_generator as eg_mod
+        import utils as utils_mod
+
+        monkeypatch.setattr(utils_mod, "get_questionnaire", fake_get_questionnaire)
+        monkeypatch.chdir(tmp_path)
+
+        # Create testing file: columns Prompt, order-0, shuffle0-test0; 3 data rows.
+        # We'll return 1 score to cause length mismatch on insert.
+        results_dir = tmp_path / "results"
+        results_dir.mkdir()
+        csv_path = results_dir / "test-model-BFI.csv"
+        with open(csv_path, "w", newline="") as f:
+            import csv
+            writer = csv.writer(f)
+            writer.writerow(["Prompt: Test", "order-0", "shuffle0-test0"])
+            writer.writerow(["1. Q1", "1", ""])
+            writer.writerow(["2. Q2", "2", ""])
+            writer.writerow(["3. Q3", "3", ""])
+
+        # Mock chat to return minimal JSON (1 answer) so result_list has wrong length
+        def fake_chat(*args, **kwargs):
+            return '{"answers": [{"question_index": "1", "score": 3}]}'
+
+        monkeypatch.setattr(eg_mod, "chat", fake_chat)
+        monkeypatch.setattr(eg_mod, "_validate_model_litellm", lambda _: None)
+
+        overrides = [
+            "questionnaire=BFI",
+            "mode=testing",
+            "model=openai/test-model",
+            "shuffle_count=0",
+            "test_count=1",
+            "use_structured_output=true",
+            "batch_size=null",
+            "max_parse_failure_retries=2",
+        ]
+        with initialize(version_base=None, config_path=CONFIG_PATH):
+            cfg = compose(config_name=CONFIG_NAME, overrides=overrides)
+
+        with pytest.raises(RuntimeError, match="Failed to capture responses.*after 2 attempts"):
+            run_psychobench(cfg, eg_mod.example_generator)

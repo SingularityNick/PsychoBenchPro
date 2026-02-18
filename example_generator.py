@@ -322,8 +322,10 @@ def example_generator(questionnaire, run):
 
                     # Insert the updated column into the DataFrame with a unique identifier in the header
                     column_header = f'shuffle{shuffle_count - 1}-test{k}'
+                    max_retries = getattr(run, "max_parse_failure_retries", 3)
+                    last_exception = None
 
-                    while(True):
+                    for attempt in range(max_retries):
                         result_string_list = []
                         previous_records = []
                         if use_structured:
@@ -413,8 +415,19 @@ def example_generator(questionnaire, run):
                                 df.insert(i + insert_count + 1, column_header, result_list)
                                 insert_count += 1
                             break
-                        except Exception:
-                            logger.warning("Unable to capture the responses on {}.", column_header)
+                        except Exception as e:
+                            last_exception = e
+                            logger.warning(
+                                "Unable to capture the responses on {} (attempt {}/{}).",
+                                column_header,
+                                attempt + 1,
+                                max_retries,
+                            )
+                    else:
+                        raise RuntimeError(
+                            f"Failed to capture responses for {column_header} after "
+                            f"{max_retries} attempts. Last error: {last_exception}"
+                        ) from last_exception
 
                     # Write the updated DataFrame back to the CSV file
                     df.to_csv(testing_file, index=False)

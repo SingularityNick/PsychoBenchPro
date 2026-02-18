@@ -90,6 +90,8 @@ All options are defined in `conf/config.yaml` and can be overridden from the com
 
 9. **use_structured_output**: When `true`, the LLM is asked to return a structured JSON response conforming to a Pydantic schema instead of free text. This dramatically improves parsing reliability. Requires a model that supports JSON mode / structured output (most modern models from OpenAI, Anthropic, Gemini, etc. do). Falls back to the legacy text parser if JSON parsing fails. Default: `false`. Example: `use_structured_output=true`.
 
+10. **max_parse_failure_retries**: Maximum number of retries when response parsing or capture fails (e.g. malformed JSON, length mismatch). When exceeded, the run raises an error instead of retrying indefinitely. Default: `3`. Example: `max_parse_failure_retries=5`.
+
 ## 🦙 Benchmarking Your Own Model
 It is easy! Just replace the function `example_generator` fed into the function `run_psychobench(cfg, generator)`.
 
