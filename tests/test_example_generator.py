@@ -1,5 +1,8 @@
 """Unit tests for example_generator multi-provider LLM support and structured output."""
+import csv
+import os
 import sys
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -11,6 +14,7 @@ from example_generator import (
     _is_text_completion_model,
     convert_results,
     convert_results_structured,
+    example_generator,
 )
 
 
@@ -212,3 +216,166 @@ class TestConvertResultsLegacy:
         text = "no scores here\nanother line"
         result = convert_results(text, "col")
         assert all(v == "" for v in result)
+
+
+# ---------------------------------------------------------------------------
+# max_parse_failure_retries integration tests
+# ---------------------------------------------------------------------------
+
+
+def _make_testing_csv(path, num_questions=3):
+    """Create a minimal testing CSV for example_generator with the given number of questions."""
+    prompt_col = ["Prompt: Rate yourself"] + [f"{i+1}. Q{i+1}" for i in range(num_questions)]
+    order_col = ["order-0"] + [str(i + 1) for i in range(num_questions)]
+    test_col = ["shuffle0-test0"] + [""] * num_questions
+    rows = list(zip(prompt_col, order_col, test_col, strict=True))
+    with open(path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerows(rows)
+
+
+def _make_run_config(testing_file, output_dir, *, max_retries=3, use_structured=False):
+    """Create a mock run OmegaConf-like object for example_generator."""
+    run = MagicMock()
+    run.testing_file = str(testing_file)
+    run.output_dir = str(output_dir)
+    run.model = "openai/gpt-4"
+    run.name_exp = None
+    run.test_count = 1
+    run.shuffle_count = 0
+    run.temperature = 0
+    run.api_base = ""
+    run.batch_size = None
+    run.use_structured_output = use_structured
+    run.max_parse_failure_retries = max_retries
+    run.allowed_providers = ["openai", "anthropic", "gemini", "ollama"]
+    return run
+
+
+def _make_questionnaire(num_questions=3):
+    """Create a minimal questionnaire dict."""
+    return {
+        "name": "Test",
+        "prompt": "Rate yourself on a scale of 1-5.",
+        "inner_setting": "You are a research participant.",
+        "questions": {str(i + 1): f"Q{i + 1}" for i in range(num_questions)},
+        "scale": 5,
+        "compute_mode": "AVG",
+        "reverse": [],
+        "categories": [],
+    }
+
+
+class TestMaxParseFailureRetries:
+    """Tests for the max_parse_failure_retries configuration."""
+
+    @patch("example_generator._validate_model_litellm")
+    @patch("example_generator._validate_model_provider")
+    @patch("example_generator.chat")
+    def test_successful_parse_no_retry(self, mock_chat, mock_validate_prov, mock_validate_lite, tmp_path):
+        """When parsing succeeds on the first attempt, no retry occurs."""
+        csv_path = tmp_path / "test.csv"
+        _make_testing_csv(csv_path, num_questions=3)
+        run = _make_run_config(csv_path, tmp_path, max_retries=3)
+        questionnaire = _make_questionnaire(num_questions=3)
+
+        mock_chat.return_value = "1: 5\n2: 3\n3: 4"
+
+        example_generator(questionnaire, run)
+
+        assert mock_chat.call_count == 1
+
+    @patch("example_generator._validate_model_litellm")
+    @patch("example_generator._validate_model_provider")
+    @patch("example_generator.chat")
+    def test_retries_on_parse_failure_then_succeeds(self, mock_chat, mock_validate_prov, mock_validate_lite, tmp_path):
+        """When first attempt fails parsing but second succeeds, chat is called twice."""
+        csv_path = tmp_path / "test.csv"
+        _make_testing_csv(csv_path, num_questions=3)
+        run = _make_run_config(csv_path, tmp_path, max_retries=3)
+        questionnaire = _make_questionnaire(num_questions=3)
+
+        # First call returns wrong number of scores (triggers length mismatch), second succeeds
+        mock_chat.side_effect = [
+            "1: 5\n2: 3",  # only 2 scores for 3 questions
+            "1: 5\n2: 3\n3: 4",  # correct: 3 scores
+        ]
+
+        example_generator(questionnaire, run)
+
+        assert mock_chat.call_count == 2
+
+    @patch("example_generator._validate_model_litellm")
+    @patch("example_generator._validate_model_provider")
+    @patch("example_generator.chat")
+    def test_exhausts_retries_and_skips(self, mock_chat, mock_validate_prov, mock_validate_lite, tmp_path):
+        """When all retries are exhausted, the column is skipped (no crash)."""
+        csv_path = tmp_path / "test.csv"
+        _make_testing_csv(csv_path, num_questions=3)
+        run = _make_run_config(csv_path, tmp_path, max_retries=2)
+        questionnaire = _make_questionnaire(num_questions=3)
+
+        # Always return wrong number of scores
+        mock_chat.return_value = "1: 5"  # only 1 score for 3 questions
+
+        # Should not raise; should log error and skip
+        example_generator(questionnaire, run)
+
+        # 1 initial attempt + 2 retries = 3 total calls
+        assert mock_chat.call_count == 3
+
+    @patch("example_generator._validate_model_litellm")
+    @patch("example_generator._validate_model_provider")
+    @patch("example_generator.chat")
+    def test_zero_retries_fails_immediately(self, mock_chat, mock_validate_prov, mock_validate_lite, tmp_path):
+        """When max_retries=0, only one attempt is made (no retries)."""
+        csv_path = tmp_path / "test.csv"
+        _make_testing_csv(csv_path, num_questions=3)
+        run = _make_run_config(csv_path, tmp_path, max_retries=0)
+        questionnaire = _make_questionnaire(num_questions=3)
+
+        mock_chat.return_value = "1: 5"  # wrong number of scores
+
+        example_generator(questionnaire, run)
+
+        assert mock_chat.call_count == 1
+
+    @patch("example_generator._validate_model_litellm")
+    @patch("example_generator._validate_model_provider")
+    @patch("example_generator.chat")
+    def test_default_retries_is_three(self, mock_chat, mock_validate_prov, mock_validate_lite, tmp_path):
+        """Default max_parse_failure_retries from config is 3 (1 + 3 = 4 total attempts)."""
+        csv_path = tmp_path / "test.csv"
+        _make_testing_csv(csv_path, num_questions=3)
+        run = _make_run_config(csv_path, tmp_path, max_retries=3)
+        questionnaire = _make_questionnaire(num_questions=3)
+
+        mock_chat.return_value = "1: 5"  # always fails
+
+        example_generator(questionnaire, run)
+
+        # 1 initial + 3 retries = 4 total
+        assert mock_chat.call_count == 4
+
+    @patch("example_generator._validate_model_litellm")
+    @patch("example_generator._validate_model_provider")
+    @patch("example_generator.chat")
+    def test_structured_output_retries(self, mock_chat, mock_validate_prov, mock_validate_lite, tmp_path):
+        """Structured output mode also respects max_parse_failure_retries."""
+        csv_path = tmp_path / "test.csv"
+        _make_testing_csv(csv_path, num_questions=3)
+        run = _make_run_config(csv_path, tmp_path, max_retries=1, use_structured=True)
+        questionnaire = _make_questionnaire(num_questions=3)
+
+        # Return only 1 answer when 3 are expected
+        bad_json = '{"answers": [{"question_index": "1", "score": 5}]}'
+        good_json = (
+            '{"answers": [{"question_index": "1", "score": 5},'
+            ' {"question_index": "2", "score": 3},'
+            ' {"question_index": "3", "score": 4}]}'
+        )
+        mock_chat.side_effect = [bad_json, good_json]
+
+        example_generator(questionnaire, run)
+
+        assert mock_chat.call_count == 2

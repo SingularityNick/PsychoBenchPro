@@ -280,6 +280,7 @@ def example_generator(questionnaire, run):
 
     api_base = getattr(run, "api_base", None) or ""
     use_structured = getattr(run, "use_structured_output", False)
+    max_retries = int(getattr(run, "max_parse_failure_retries", 3))
 
     if use_structured:
         logger.info("Structured output mode enabled — responses will be parsed as JSON.")
@@ -323,7 +324,7 @@ def example_generator(questionnaire, run):
                     # Insert the updated column into the DataFrame with a unique identifier in the header
                     column_header = f'shuffle{shuffle_count - 1}-test{k}'
 
-                    while(True):
+                    for _retry in range(1 + max_retries):
                         result_string_list = []
                         previous_records = []
                         if use_structured:
@@ -414,7 +415,20 @@ def example_generator(questionnaire, run):
                                 insert_count += 1
                             break
                         except Exception:
-                            logger.warning("Unable to capture the responses on {}.", column_header)
+                            remaining = max_retries - _retry
+                            if remaining > 0:
+                                logger.warning(
+                                    "Parse failure on {} (attempt {}/{}); retrying…",
+                                    column_header,
+                                    _retry + 1,
+                                    1 + max_retries,
+                                )
+                            else:
+                                logger.error(
+                                    "Parse failure on {} after {} attempt(s); skipping column.",
+                                    column_header,
+                                    1 + max_retries,
+                                )
 
                     # Write the updated DataFrame back to the CSV file
                     df.to_csv(testing_file, index=False)
