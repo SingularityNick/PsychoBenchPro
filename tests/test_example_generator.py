@@ -1,6 +1,5 @@
 """Unit tests for example_generator multi-provider LLM support and structured output."""
 import csv
-import os
 import sys
 from unittest.mock import MagicMock, patch
 
