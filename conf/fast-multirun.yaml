@@ -1,0 +1,11 @@
+# Benchmark config: multirun over the listed models.
+# Run with: uv run python run_psychobench.py --config-name benchmark
+defaults:
+  - config
+  - _self_
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      model: ollama/deepseek-r1:latest,gemini/gemini-3-flash-preview
