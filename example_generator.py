@@ -1,4 +1,3 @@
-import json
 import os
 import re
 import time
@@ -44,7 +43,7 @@ class QuestionnaireResponse(BaseModel):
     """Structured response from the LLM for a batch of questionnaire items.
 
     Each element in `answers` is an AnswerItem with question_index (string) and
-    score (int). Old format [{\"1\": 5}, {\"2\": 3}] is still accepted by the parser.
+    score (int).
     """
 
     answers: list[AnswerItem] = Field(
@@ -232,40 +231,12 @@ def convert_results(result, column_header):
     return result_list
 
 
-def _extract_scores_from_answers(answers: list) -> list[int] | None:
-    """Extract a list of integer scores from an 'answers' list (new or old format). Returns None if invalid."""
-    scores: list[int] = []
-    for item in answers:
-        if not isinstance(item, dict) or not item:
-            return None
-        if "score" in item:
-            try:
-                scores.append(int(item["score"]))
-            except (TypeError, ValueError):
-                return None
-        else:
-            # Old format: single key -> value per item
-            for _key, val in item.items():
-                try:
-                    scores.append(int(val))
-                except (TypeError, ValueError):
-                    return None
-                break
-    if len(scores) != len(answers):
-        return None
-    return scores
-
-
 def convert_results_structured(result_json: str, column_header: str) -> list[int]:
     """Parse a single structured JSON LLM response into a flat list of integer scores.
 
-    Preferred format (matches :class:`QuestionnaireResponse`)::
+    Expected format (matches :class:`QuestionnaireResponse`)::
 
         {"answers": [{"question_index": "1", "score": 5}, {"question_index": "2", "score": 3}, ...]}
-
-    Old format is also accepted for backward compatibility::
-
-        {"answers": [{"1": 5}, {"2": 3}, ...]}
 
     Expects one JSON object per call (the generator parses each API response separately).
     Falls back to :func:`convert_results` if parsing fails.
@@ -273,14 +244,6 @@ def convert_results_structured(result_json: str, column_header: str) -> list[int
     try:
         parsed = QuestionnaireResponse.model_validate_json(result_json)
         return [item.score for item in parsed.answers]
-    except Exception:
-        pass
-    try:
-        data = json.loads(result_json)
-        if isinstance(data.get("answers"), list):
-            scores = _extract_scores_from_answers(data["answers"])
-            if scores is not None:
-                return scores
     except Exception:
         pass
     logger.warning(

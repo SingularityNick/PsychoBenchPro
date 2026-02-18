@@ -113,12 +113,6 @@ class TestConvertResultsStructured:
         result = convert_results_structured(raw, "test-col")
         assert result == [5, 3, 7]
 
-    def test_old_format_still_parsed(self):
-        """Backward compatibility: old format [{\"1\": 5}, {\"2\": 3}] still works."""
-        raw = '{"answers": [{"1": 5}, {"2": 3}]}'
-        result = convert_results_structured(raw, "test-col")
-        assert result == [5, 3]
-
     def test_empty_answers_returns_empty(self):
         raw = '{"answers": []}'
         result = convert_results_structured(raw, "test-col")

@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- **Structured output schema**: Response schema now uses required `question_index` and `score` per answer (Pydantic `AnswerItem`) so models (e.g. Gemini) no longer return empty objects. Parser still returns the same `list[int]` in question order and accepts the old format `[{"1": 5}, {"2": 3}]` for backward compatibility.
+- **Structured output schema**: Response schema now uses required `question_index` and `score` per answer (Pydantic `AnswerItem`) so models (e.g. Gemini) no longer return empty objects. Parser still returns the same `list[int]` in question order.
 
 ### Added
 
