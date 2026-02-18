@@ -52,4 +52,10 @@ use_structured_output: true
 # When null: no batching — the full questionnaire is sent as a single batch regardless of size.
 batch_size: 30
 
+# Maximum number of retries when LLM response parsing fails (e.g. wrong number of scores).
+# Each retry re-queries the LLM for the same batch. After exhausting retries the column is
+# left empty and the run continues with the next test iteration.
+# Set to 0 to disable retries (fail on first parse error). Default: 3.
+max_parse_failure_retries: 3
+
 # LiteLLM reads API keys from environment variables (e.g. OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY).

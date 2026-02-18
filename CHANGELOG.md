@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **`max_parse_failure_retries` config option**: New setting (default: `3`) that bounds the retry loop in `example_generator` when LLM response parsing fails (e.g. wrong number of scores returned). Previously the loop was infinite (`while True`), which could hang forever if a model consistently returned unparseable output. Set to `0` to disable retries (fail on first parse error). Configurable via CLI (`max_parse_failure_retries=5`) or `conf/config.yaml`. When retries are exhausted the column is skipped with an error log and the run continues.
+
 ### Changed
 
 - **Structured output schema**: Response schema now uses required `question_index` and `score` per answer (Pydantic `AnswerItem`) so models (e.g. Gemini) no longer return empty objects. Parser still returns the same `list[int]` in question order.
