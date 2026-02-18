@@ -180,7 +180,7 @@ class TestBuildStructuredPrompt:
         assert '"answers"' in prompt
         assert "question_index" in prompt
         assert "score" in prompt
-        assert '{"question_index": "1", "score": 5}' in prompt
+        assert '{"question_index": "1", "score": <score>}' in prompt
 
     def test_includes_base_prompt(self):
         q = {"prompt": "Please evaluate yourself.", "inner_setting": "You are a helper."}
