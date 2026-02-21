@@ -79,4 +79,4 @@ Token basis (OpenAI tiktoken): **8,900 input** and **4,604 output** per full pas
 | 11        | d = 1.2, n₂ = 50 | 97,900       | 50,644        | 148,544      |
 | 10        | current (underpowered) | 89,000  | 46,040        | 135,040      |
 
-Example: for **77 runs** per questionnaire (recommended for medium–large effects with 25 models in the crowd), one model over all 14 questionnaires uses **~1.04M tokens** (~685K input, ~355K output).
+Example: for **77 runs** per questionnaire (recommended for medium–large effects with 25 models in the crowd), one model over all 14 questionnaires uses **~1.04M tokens** (~685K input, ~355K output). **Total cost for 77 runs × all models** in `conf/benchmark.yaml`: see [BENCHMARK_COST_77_RUNS.md](BENCHMARK_COST_77_RUNS.md).

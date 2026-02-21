@@ -109,4 +109,6 @@ OpenRouter uses **provider pricing** (no markup). Each model has its own page un
   using that model’s tokenizer and the provider’s $/1M for that model.
 - **Cost for R runs (e.g. power-analysis scenarios):** Multiply the per-run token totals by R, then apply the formula above (or multiply per-run cost by R if you already computed cost per run).
 
+- **77 runs × all benchmark models:** Precomputed total and per-model costs (tokenizer-matched, standard pricing): [BENCHMARK_COST_77_RUNS.md](BENCHMARK_COST_77_RUNS.md). Regenerate with `uv run python scripts/benchmark_cost_77runs.py`.
+
 Tokenizer differences (OpenAI vs Anthropic vs Gemini vs DeepSeek/Llama/Qwen) mean the same prompt can have different token counts; use the tokenizer that matches the model when estimating cost.
