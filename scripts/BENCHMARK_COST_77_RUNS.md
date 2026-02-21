@@ -4,7 +4,39 @@
 
 **Formula:** `cost = (input_tokens / 1e6) × input_$ per_1M + (output_tokens / 1e6) × output_$ per_1M`
 
-**Total (27 models):** **$186.91 USD**
+### Total estimate
+
+| Scenario | Total (27 models) |
+|----------|-------------------|
+| **JSON output only** (baseline) | **$186.91 USD** |
+| **With reasoning** (~10k thinking tokens/run for 10 reasoning-capable models) | **~$426.38 USD** |
+
+---
+
+## Reasoning / thinking tokens (where applicable)
+
+The baseline table assumes **JSON-only output**. Some models can emit **reasoning or thinking tokens** (OpenAI o1/GPT-5-style, Anthropic extended thinking, Gemini thinking); those are billed as output when no budget is set.
+
+**Rule of thumb (no budget, medium task):** ~**5k–15k** reasoning/thinking tokens per request (provider docs and empirical estimates; billing formula in [PRICING_REFERENCE.md](PRICING_REFERENCE.md)). For this benchmark the tasks are **low difficulty**, so actual use may be at the lower end; we use **~10k tokens per request** as a conservative estimate.
+
+**Additional cost** for 77 runs = 77 × 10,000 = **770,000** extra output tokens per model → `0.77 × output_$ per_1M` USD.
+
+| Model | Output $/1M | + Reasoning estimate (USD) |
+|-------|-------------|----------------------------|
+| anthropic/claude-sonnet-4-20250514 | 15 | 11.55 |
+| anthropic/claude-sonnet-4-5-20250929 | 15 | 11.55 |
+| anthropic/claude-opus-4-6 | 25 | 19.25 |
+| anthropic/claude-sonnet-4-6 | 15 | 11.55 |
+| gemini/gemini-2.5-pro | 10 | 7.70 |
+| gemini/gemini-3-pro-preview | 12 | 9.24 |
+| gemini/gemini-3.1-pro-preview | 12 | 9.24 |
+| openai/gpt-5-2025-08-07 | 10 | 7.70 |
+| openai/gpt-5.2-2025-12-11 | 14 | 10.78 |
+| openai/gpt-5.2-pro-2025-12-11 | 168 | 129.36 |
+
+**Sum of reasoning add-on (10 models):** **~$239.47 USD**
+
+**Total if all reasoning-capable models use ~10k thinking tokens per run:** **~$426.38 USD** (baseline $186.91 + $239.47).
 
 ---
 
