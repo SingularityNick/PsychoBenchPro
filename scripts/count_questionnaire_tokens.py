@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Count input tokens per questionnaire using Gemini, OpenAI, and Anthropic tokenizers.
+Count input/output tokens per questionnaire using multiple tokenizers.
 
-Builds the same prompt structure as example_generator (system + structured user message)
-and reports token counts from each provider's tokenizer.
+Tokenizers: OpenAI (tiktoken), Anthropic, Gemini, DeepSeek, Llama, Qwen (Hugging Face).
+Builds the same prompt structure as example_generator (system + structured user message).
 """
 
 from __future__ import annotations
@@ -63,6 +63,61 @@ def count_output_tokens_openai(json_str: str) -> int:
     import tiktoken
     enc = tiktoken.get_encoding("cl100k_base")
     return len(enc.encode(json_str))
+
+
+# --- Hugging Face (DeepSeek, Llama, Qwen) ---
+_HF_TOKENIZER_CACHE: dict[str, object] = {}
+
+
+def _get_hf_tokenizer(model_id: str):
+    """Load and cache Hugging Face tokenizer by model id."""
+    if model_id not in _HF_TOKENIZER_CACHE:
+        from transformers import AutoTokenizer
+        _HF_TOKENIZER_CACHE[model_id] = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+    return _HF_TOKENIZER_CACHE[model_id]
+
+
+def _count_hf_tokens(model_id: str, text: str) -> int:
+    """Return token count for text using a Hugging Face tokenizer."""
+    tok = _get_hf_tokenizer(model_id)
+    enc = tok.encode(text, add_special_tokens=False)
+    return len(enc)
+
+
+def count_deepseek_tokens(system: str, user: str) -> int | None:
+    """Input token count using DeepSeek tokenizer (same text as Gemini: system + user)."""
+    try:
+        full = f"{system}\n\n{user}"
+        return _count_hf_tokens("deepseek-ai/DeepSeek-V2", full)
+    except Exception:
+        return None
+
+
+def count_llama_tokens(system: str, user: str) -> int | None:
+    """Input token count using Llama tokenizer (same text as Gemini: system + user)."""
+    try:
+        full = f"{system}\n\n{user}"
+        # Use public tokenizer; for Llama 3.x use meta-llama/Llama-3.2-1B with HF_TOKEN + license
+        return _count_hf_tokens("hf-internal-testing/llama-tokenizer", full)
+    except Exception:
+        return None
+
+
+def count_qwen_tokens(system: str, user: str) -> int | None:
+    """Input token count using Qwen tokenizer (same text as Gemini: system + user)."""
+    try:
+        full = f"{system}\n\n{user}"
+        return _count_hf_tokens("Qwen/Qwen2.5-0.5B-Instruct", full)
+    except Exception:
+        return None
+
+
+def count_output_tokens_hf(model_id: str, json_str: str) -> int | None:
+    """Output token count for worst-case JSON using a Hugging Face tokenizer."""
+    try:
+        return _count_hf_tokens(model_id, json_str)
+    except Exception:
+        return None
 
 
 # --- OpenAI (tiktoken) ---
@@ -139,32 +194,59 @@ def main() -> None:
                 gemini_n = "-"
         except Exception as e:
             gemini_n = f"err: {e!r}"
-        rows.append((name, openai_n, anthropic_n, gemini_n))
+        try:
+            deepseek_n = count_deepseek_tokens(system, user)
+            deepseek_n = deepseek_n if deepseek_n is not None else "-"
+        except Exception as e:
+            deepseek_n = f"err: {e!r}"
+        try:
+            llama_n = count_llama_tokens(system, user)
+            llama_n = llama_n if llama_n is not None else "-"
+        except Exception as e:
+            llama_n = f"err: {e!r}"
+        try:
+            qwen_n = count_qwen_tokens(system, user)
+            qwen_n = qwen_n if qwen_n is not None else "-"
+        except Exception as e:
+            qwen_n = f"err: {e!r}"
+        rows.append((name, openai_n, anthropic_n, gemini_n, deepseek_n, llama_n, qwen_n))
 
-    # Print table
-    w = 14
+    # Print input table (6 tokenizers)
+    w = 10
+    headers = ("Questionnaire", "OpenAI", "Anthropic", "Gemini", "DeepSeek", "Llama", "Qwen")
+    total_w = 12 + 6 * (w + 1)
     print("Questionnaire input tokens (system + structured user message)")
-    print("=" * (12 + 3 * (w + 1)))
-    print(f"{'Questionnaire':<12} {'OpenAI':>{w}} {'Anthropic':>{w}} {'Gemini':>{w}}")
-    print("-" * (12 + 3 * (w + 1)))
-    for name, o, a, g in rows:
-        print(f"{name:<12} {str(o):>{w}} {str(a):>{w}} {str(g):>{w}}")
-    print("=" * (12 + 3 * (w + 1)))
+    print("=" * total_w)
+    print(f"{headers[0]:<12} {headers[1]:>{w}} {headers[2]:>{w}} {headers[3]:>{w}} {headers[4]:>{w}} {headers[5]:>{w}} {headers[6]:>{w}}")
+    print("-" * total_w)
+    for row in rows:
+        print(f"{row[0]:<12} {str(row[1]):>{w}} {str(row[2]):>{w}} {str(row[3]):>{w}} {str(row[4]):>{w}} {str(row[5]):>{w}} {str(row[6]):>{w}}")
+    print("=" * total_w)
     if any(r[2] == "-" or r[3] == "-" for r in rows):
         print("\nSet ANTHROPIC_API_KEY and GEMINI_API_KEY (or GOOGLE_API_KEY) to include those columns.")
+    if any(r[4] == "-" or r[5] == "-" or r[6] == "-" for r in rows):
+        print("DeepSeek/Llama/Qwen require transformers and HF model download (may need HF_TOKEN for gated models).")
 
     # Output token upper bound (structured JSON, worst-case pretty-printed)
+    out_w = 8
+    h = ("Questionnaire", "N", "OpenAI", "DeepSeek", "Llama", "Qwen")
+    out_total_w = 12 + 5 * (out_w + 1)
     print("\nOutput token upper bound (structured JSON, indent=2, 1-digit values)")
-    print("(OpenAI tiktoken cl100k_base — reasonable upper bound for all providers)\n")
-    out_w = 10
-    print(f"{'Questionnaire':<12} {'Questions':>{out_w}} {'Output tokens':>{out_w}}")
-    print("-" * (12 + 2 * (out_w + 1)))
+    print("-" * out_total_w)
+    print(f"{h[0]:<12} {h[1]:>{out_w}} {h[2]:>{out_w}} {h[3]:>{out_w}} {h[4]:>{out_w}} {h[5]:>{out_w}}")
+    print("-" * out_total_w)
     for q in questionnaires:
         n = len(q["questions"])
         json_str = worst_case_json_output(n)
-        out_tokens = count_output_tokens_openai(json_str)
-        print(f"{q['name']:<12} {n:>{out_w}} {out_tokens:>{out_w}}")
-    print("-" * (12 + 2 * (out_w + 1)))
+        o_openai = count_output_tokens_openai(json_str)
+        o_ds = count_output_tokens_hf("deepseek-ai/DeepSeek-V2", json_str)
+        o_llama = count_output_tokens_hf("hf-internal-testing/llama-tokenizer", json_str)
+        o_qwen = count_output_tokens_hf("Qwen/Qwen2.5-0.5B-Instruct", json_str)
+        o_ds = o_ds if o_ds is not None else "-"
+        o_llama = o_llama if o_llama is not None else "-"
+        o_qwen = o_qwen if o_qwen is not None else "-"
+        print(f"{q['name']:<12} {n:>{out_w}} {o_openai:>{out_w}} {str(o_ds):>{out_w}} {str(o_llama):>{out_w}} {str(o_qwen):>{out_w}}")
+    print("-" * out_total_w)
 
 
 if __name__ == "__main__":

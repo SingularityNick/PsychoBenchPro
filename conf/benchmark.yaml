@@ -1,5 +1,6 @@
 # Benchmark config: multirun over the listed models.
 # Run with: uv run python run_psychobench.py --config-name benchmark
+# Pricing: see scripts/PRICING_REFERENCE.md (official docs + how cost is calculated).
 defaults:
   - config
   - _self_
