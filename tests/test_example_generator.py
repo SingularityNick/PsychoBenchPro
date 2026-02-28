@@ -10,6 +10,7 @@ sys.path.insert(0, ".")  # noqa: E402
 
 from example_generator import (
     _build_response_model,
+    _build_response_model_with_notes,
     _build_structured_prompt,
     _is_text_completion_model,
     convert_results,
@@ -102,6 +103,81 @@ class TestBuildResponseModel:
 
 
 # ---------------------------------------------------------------------------
+# _build_response_model_with_notes (dynamic model with optional notes)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildResponseModelWithNotes:
+    """Tests for the dynamic Pydantic model with optional notes fields."""
+
+    def test_valid_json_with_notes_parses(self):
+        raw = '{"q1": 5, "q1_notes": "some thought", "q2": 3, "q2_notes": ""}'
+        model_cls = _build_response_model_with_notes(2)
+        resp = model_cls.model_validate_json(raw)
+        assert resp.q1 == 5
+        assert resp.q1_notes == "some thought"
+        assert resp.q2 == 3
+        assert resp.q2_notes == ""
+
+    def test_valid_json_without_notes_parses(self):
+        """Notes fields are optional — JSON without them should still parse."""
+        raw = '{"q1": 5, "q2": 3}'
+        model_cls = _build_response_model_with_notes(2)
+        resp = model_cls.model_validate_json(raw)
+        assert resp.q1 == 5
+        assert resp.q1_notes is None
+        assert resp.q2 == 3
+        assert resp.q2_notes is None
+
+    def test_mixed_notes_and_no_notes(self):
+        """Some questions have notes, others don't."""
+        raw = '{"q1": 5, "q1_notes": "thinking...", "q2": 3, "q3": 4, "q3_notes": null}'
+        model_cls = _build_response_model_with_notes(3)
+        resp = model_cls.model_validate_json(raw)
+        assert resp.q1_notes == "thinking..."
+        assert resp.q2_notes is None
+        assert resp.q3_notes is None
+
+    def test_notes_null_value(self):
+        raw = '{"q1": 4, "q1_notes": null}'
+        model_cls = _build_response_model_with_notes(1)
+        resp = model_cls.model_validate_json(raw)
+        assert resp.q1_notes is None
+
+    def test_schema_includes_notes_fields(self):
+        model_cls = _build_response_model_with_notes(2)
+        schema = model_cls.model_json_schema()
+        props = schema.get("properties", {})
+        assert "q1" in props
+        assert "q1_notes" in props
+        assert "q2" in props
+        assert "q2_notes" in props
+        required = set(schema.get("required", []))
+        assert "q1" in required
+        assert "q2" in required
+        assert "q1_notes" not in required
+        assert "q2_notes" not in required
+
+    def test_notes_not_in_base_model(self):
+        """The base _build_response_model must NOT have notes fields."""
+        model_cls = _build_response_model(2)
+        schema = model_cls.model_json_schema()
+        props = schema.get("properties", {})
+        assert "q1_notes" not in props
+        assert "q2_notes" not in props
+
+    def test_caching_returns_same_class(self):
+        assert _build_response_model_with_notes(3) is _build_response_model_with_notes(3)
+
+    def test_score_validation_still_applies(self):
+        """Score constraints (ge=1, le=5) still enforced even with notes model."""
+        raw = '{"q1": 0, "q1_notes": "out of range"}'
+        model_cls = _build_response_model_with_notes(1)
+        with pytest.raises(ValueError):
+            model_cls.model_validate_json(raw)
+
+
+# ---------------------------------------------------------------------------
 # convert_results_structured
 # ---------------------------------------------------------------------------
 
@@ -139,6 +215,24 @@ class TestConvertResultsStructured:
         result = convert_results_structured(raw, 3)
         assert result == [5, 3, 1]
 
+    def test_with_notes_returns_scores_only(self):
+        """When include_notes=True, scores are extracted and notes are ignored."""
+        raw = '{"q1": 5, "q1_notes": "some note", "q2": 3, "q2_notes": "", "q3": 4}'
+        result = convert_results_structured(raw, 3, include_notes=True)
+        assert result == [5, 3, 4]
+
+    def test_with_notes_flag_false_still_parses(self):
+        """include_notes=False uses base model — JSON without notes parses fine."""
+        raw = '{"q1": 4, "q2": 2}'
+        result = convert_results_structured(raw, 2, include_notes=False)
+        assert result == [4, 2]
+
+    def test_with_notes_missing_notes_ok(self):
+        """With include_notes=True, omitting all notes fields is fine."""
+        raw = '{"q1": 3, "q2": 5}'
+        result = convert_results_structured(raw, 2, include_notes=True)
+        assert result == [3, 5]
+
 
 # ---------------------------------------------------------------------------
 # _build_structured_prompt
@@ -172,6 +266,30 @@ class TestBuildStructuredPrompt:
         q = {"prompt": "Please evaluate yourself.", "inner_setting": "You are a helper."}
         prompt = _build_structured_prompt(q, "1. Q1", 1)
         assert "Please evaluate yourself." in prompt
+
+    def test_include_notes_false_has_no_notes(self):
+        q = {"prompt": "Rate these:", "inner_setting": "You are a helper."}
+        prompt = _build_structured_prompt(q, "1. Q1", 1, include_notes=False)
+        assert "notes" not in prompt
+
+    def test_include_notes_true_has_notes_instructions(self):
+        q = {"prompt": "Rate these:", "inner_setting": "You are a helper."}
+        prompt = _build_structured_prompt(q, "1. Q1", 1, include_notes=True)
+        assert "notes" in prompt
+        assert "optional" in prompt.lower()
+
+    def test_include_notes_true_mentions_notes_keys(self):
+        q = {"prompt": "Rate:", "inner_setting": "Helper."}
+        prompt = _build_structured_prompt(q, "1. Q1\n2. Q2", 2, include_notes=True)
+        assert "q1_notes" in prompt or "notes" in prompt
+        assert "q1" in prompt
+        assert "q2" in prompt
+
+    def test_include_notes_default_is_false(self):
+        """Default (no include_notes arg) should produce a prompt without notes."""
+        q = {"prompt": "Rate these:", "inner_setting": "You are a helper."}
+        prompt = _build_structured_prompt(q, "1. Q1", 1)
+        assert "notes" not in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -216,7 +334,7 @@ def _make_testing_csv(path, num_questions=3):
         writer.writerows(rows)
 
 
-def _make_run_config(testing_file, output_dir, *, max_retries=3, use_structured=False):
+def _make_run_config(testing_file, output_dir, *, max_retries=3, use_structured=False, structured_output_notes=False):
     """Create a mock run OmegaConf-like object for example_generator."""
     run = MagicMock()
     run.testing_file = str(testing_file)
@@ -226,9 +344,9 @@ def _make_run_config(testing_file, output_dir, *, max_retries=3, use_structured=
     run.test_count = 1
     run.shuffle_count = 0
     run.temperature = 0
-    run.api_base = ""
     run.batch_size = None
     run.use_structured_output = use_structured
+    run.structured_output_notes = structured_output_notes
     run.max_parse_failure_retries = max_retries
     run.allowed_providers = ["openai", "anthropic", "gemini", "ollama"]
     return run

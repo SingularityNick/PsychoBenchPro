@@ -48,6 +48,12 @@ temperature: 1.0
 # When false, falls back to the legacy text-based parsing (extract last digit per line).
 use_structured_output: true
 
+# Include an optional free-text "notes" field in each structured output answer item.
+# Only has effect when use_structured_output is true; ignored otherwise.
+# When true, each answer may include rough notes or reasoning from the LLM (can also be empty).
+# When false, the structured output schema contains only score fields (no notes).
+structured_output_notes: true
+
 # Batch size for splitting questionnaire questions into chunks for LLM calls.
 # Default 30: questions are sent in batches of 30 per API call.
 # When null: no batching — the full questionnaire is sent as a single batch regardless of size.
