@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "psychobench-pro"
 version = "0.1.0"
@@ -52,3 +56,6 @@ ignore = []
 
 [tool.ruff.lint.isort]
 known-first-party = ["psychobench"]
+
+[tool.setuptools]
+py-modules = ["example_generator", "run_psychobench", "utils"]
