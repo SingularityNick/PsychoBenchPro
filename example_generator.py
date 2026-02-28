@@ -1,11 +1,12 @@
 import os
 import re
 import time
+from functools import cache
 
 import litellm
 import pandas as pd
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, create_model
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -22,68 +23,35 @@ TEXT_COMPLETION_MODEL_PATTERN = re.compile(
 
 
 # ---------------------------------------------------------------------------
-# Pydantic model for structured LLM output
+# Dynamic Pydantic model for structured LLM output
 # ---------------------------------------------------------------------------
 
 
-class AnswerItem(BaseModel):
-    """One questionnaire answer: 1-based question index and integer score."""
-
-    question_index: str = Field(
-        ...,
-        description="1-based question number as string, e.g. '1', '2'.",
-    )
-    score: int = Field(
-        ...,
-        description="Integer rating for that question.",
-    )
+@cache
+def _build_response_model(n_questions: int) -> type[BaseModel]:
+    """Return a Pydantic model with exactly *n_questions* required integer fields q1..qN."""
+    fields = {
+        f"q{i}": (int, Field(..., ge=1, le=5, description=f"Score for question {i}"))
+        for i in range(1, n_questions + 1)
+    }
+    return create_model("QuestionnaireResponse", **fields)
 
 
-class AnswerItemWithNotes(BaseModel):
-    """One questionnaire answer with an optional free-text notes field."""
+@cache
+def _build_response_model_with_notes(n_questions: int) -> type[BaseModel]:
+    """Return a Pydantic model with q1..qN score fields and optional q1_notes..qN_notes.
 
-    question_index: str = Field(
-        ...,
-        description="1-based question number as string, e.g. '1', '2'.",
-    )
-    score: int = Field(
-        ...,
-        description="Integer rating for that question.",
-    )
-    notes: str | None = Field(
-        default=None,
-        description=(
-            "Optional free-text notes for this answer. "
-            "Use this for any rough thoughts, reasoning, or remarks that are "
-            "helpful when responding. Can be left empty or omitted entirely."
-        ),
-    )
-
-
-class QuestionnaireResponse(BaseModel):
-    """Structured response from the LLM for a batch of questionnaire items.
-
-    Each element in `answers` is an AnswerItem with question_index (string) and
-    score (int).
+    Each ``q{i}_notes`` is an optional free-text field where the LLM can jot
+    down any rough thoughts or reasoning. It can be ``null`` or omitted.
     """
-
-    answers: list[AnswerItem] = Field(
-        ...,
-        description="List of answers, one per question, in order.",
-    )
-
-
-class QuestionnaireResponseWithNotes(BaseModel):
-    """Structured response with optional notes on each answer item.
-
-    Each element in `answers` is an AnswerItemWithNotes with question_index,
-    score, and an optional free-text notes field.
-    """
-
-    answers: list[AnswerItemWithNotes] = Field(
-        ...,
-        description="List of answers, one per question, in order.",
-    )
+    fields: dict = {}
+    for i in range(1, n_questions + 1):
+        fields[f"q{i}"] = (int, Field(..., ge=1, le=5, description=f"Score for question {i}"))
+        fields[f"q{i}_notes"] = (
+            str | None,
+            Field(default=None, description=f"Optional free-text notes for question {i}"),
+        )
+    return create_model("QuestionnaireResponseWithNotes", **fields)
 
 
 def _is_text_completion_model(model: str) -> bool:
@@ -150,7 +118,7 @@ def _llm_completion(
     prompt=None,
     temperature=0,
     n=1,
-    max_tokens=1024,
+    max_tokens=8192,
     api_key=None,
     delay=1,
     response_format=None,
@@ -206,7 +174,7 @@ def chat(
     messages,
     temperature=0,
     n=1,
-    max_tokens=1024,
+    max_tokens=8192,
     api_key=None,
     delay=1,
     response_format=None,
@@ -230,7 +198,7 @@ def completion(
     prompt,
     temperature=0,
     n=1,
-    max_tokens=1024,
+    max_tokens=8192,
     api_key=None,
     delay=1,
 ):
@@ -259,66 +227,58 @@ def convert_results(result, column_header):
 
 
 def convert_results_structured(
-    result_json: str, column_header: str, include_notes: bool = False
+    result_json: str, n_questions: int, include_notes: bool = False
 ) -> list[int]:
-    """Parse a single structured JSON LLM response into a flat list of integer scores.
+    """Parse a structured JSON LLM response into a flat list of integer scores.
 
-    Expected format (matches :class:`QuestionnaireResponse` or
-    :class:`QuestionnaireResponseWithNotes`)::
+    Expected format (flat keys q1..qN)::
 
-        {"answers": [{"question_index": "1", "score": 5}, ...]}
-        {"answers": [{"question_index": "1", "score": 5, "notes": "..."}, ...]}
+        {"q1": 5, "q2": 3, ...}
 
-    Expects one JSON object per call (the generator parses each API response separately).
-    Falls back to :func:`convert_results` if parsing fails.
+    When *include_notes* is ``True``, the JSON may also contain optional
+    ``q1_notes`` .. ``qN_notes`` string fields (ignored for scoring).
+
+    Raises ``ValidationError`` if the JSON does not match the dynamic schema.
     """
-    model_cls = QuestionnaireResponseWithNotes if include_notes else QuestionnaireResponse
-    try:
-        parsed = model_cls.model_validate_json(result_json)
-        return [item.score for item in parsed.answers]
-    except Exception:
-        pass
-    logger.warning(
-        "Structured output parsing failed for {}; falling back to text parser.",
-        column_header,
-    )
-    return convert_results(result_json, column_header)
+    if include_notes:
+        model_cls = _build_response_model_with_notes(n_questions)
+    else:
+        model_cls = _build_response_model(n_questions)
+    parsed = model_cls.model_validate_json(result_json.strip())
+    return [getattr(parsed, f"q{i}") for i in range(1, n_questions + 1)]
 
 
 def _build_structured_prompt(
     questionnaire: dict,
     questions_string: str,
+    n_questions: int,
     include_notes: bool = False,
 ) -> str:
     """Return a prompt that asks the LLM to respond as structured JSON.
 
-    The prompt instructs the model to return a JSON object matching
-    :class:`QuestionnaireResponse` (answers as list of question_index/score
-    objects) instead of the legacy "index: score" text format.
+    The prompt instructs the model to return a JSON object with flat keys
+    ``q1`` through ``q{n_questions}``, each mapping to an integer score.
 
-    When *include_notes* is ``True``, the prompt also describes the optional
-    ``notes`` field on each answer item.
+    When *include_notes* is ``True``, the prompt also describes optional
+    ``q{i}_notes`` fields for free-text remarks.
     """
     base_prompt = questionnaire["prompt"]
     if include_notes:
         return (
             f"{base_prompt}\n{questions_string}\n\n"
-            "Respond with a JSON object in this format: "
-            '{"answers": [{"question_index": "1", "score": <score>, '
-            '"notes": "<optional notes>"}, ...]}\n'
-            "where question_index is the 1-based question number as a string, "
-            "score is your integer rating, and notes is an optional free-text "
-            "field where you can jot down any rough thoughts, reasoning, or "
-            "remarks that are helpful when responding to that question. "
-            "The notes field is completely optional — you may leave it as an "
-            "empty string or omit it entirely for any question."
+            f"Respond with a JSON object with keys q1 through q{n_questions}, "
+            "where each value is your integer rating (1-5). "
+            "You may also include optional keys q1_notes through "
+            f"q{n_questions}_notes, where each value is a free-text string "
+            "for any rough thoughts, reasoning, or remarks that are helpful "
+            "when responding to that question. "
+            "The notes fields are completely optional \u2014 you may leave them "
+            "as null or omit them entirely for any question."
         )
     return (
         f"{base_prompt}\n{questions_string}\n\n"
-        "Respond with a JSON object in this format: "
-        '{"answers": [{"question_index": "1", "score": <score>}, ...]}\n'
-        "where question_index is the 1-based question number as a string and "
-        "score is your integer rating."
+        f"Respond with a JSON object with keys q1 through q{n_questions}, "
+        "where each value is your integer rating (1-5)."
     )
 
 
@@ -336,9 +296,9 @@ def example_generator(questionnaire, run):
     max_retries = int(getattr(run, "max_parse_failure_retries", 3))
 
     if use_structured:
-        logger.info("Structured output mode enabled — responses will be parsed as JSON.")
+        logger.info("Structured output mode enabled \u2014 responses will be parsed as JSON.")
         if include_notes:
-            logger.info("Structured output notes enabled — each answer may include a notes field.")
+            logger.info("Structured output notes enabled \u2014 each answer may include a notes field.")
 
     # Read the existing CSV file into a pandas DataFrame
     df = pd.read_csv(testing_file)
@@ -386,6 +346,7 @@ def example_generator(questionnaire, run):
                             all_scores: list[int] = []
 
                         for questions_string in questions_list:
+                            n_questions = questions_string.count("\n") + 1
                             result = ""
                             use_text_completion = _is_text_completion_model(model)
                             temperature = getattr(run, "temperature", 0)
@@ -401,12 +362,13 @@ def example_generator(questionnaire, run):
                                 # Chat models: GPT, Claude, Gemini, Llama, etc.
                                 if use_structured:
                                     structured_prompt = _build_structured_prompt(
-                                        questionnaire, questions_string, include_notes=include_notes
+                                        questionnaire, questions_string, n_questions,
+                                        include_notes=include_notes,
                                     )
-                                    response_model = (
-                                        QuestionnaireResponseWithNotes if include_notes
-                                        else QuestionnaireResponse
-                                    )
+                                    if include_notes:
+                                        response_model = _build_response_model_with_notes(n_questions)
+                                    else:
+                                        response_model = _build_response_model(n_questions)
                                     inputs = previous_records + [
                                         {"role": "system", "content": questionnaire["inner_setting"]},
                                         {"role": "user", "content": structured_prompt},
@@ -434,12 +396,6 @@ def example_generator(questionnaire, run):
                                 previous_records.append({"role": "assistant", "content": result})
 
                             result_string_list.append(result.strip())
-                            if use_structured:
-                                all_scores.extend(
-                                    convert_results_structured(
-                                        result.strip(), column_header, include_notes=include_notes
-                                    )
-                                )
 
                             # Write the prompts and results to the run-specific output dir
                             prompts_dir = os.path.join(run.output_dir, "prompts")
@@ -460,13 +416,22 @@ def example_generator(questionnaire, run):
                             with open(responses_path, "a") as file:
                                 file.write(f'{result}\n====\n')
 
-                        if use_structured:
-                            result_list = all_scores
-                        else:
-                            result_string = '\n'.join(result_string_list)
-                            result_list = convert_results(result_string, column_header)
-
                         try:
+                            if use_structured:
+                                all_scores: list[int] = []
+                                for questions_string in questions_list:
+                                    n_questions = questions_string.count("\n") + 1
+                                    batch_result = result_string_list[questions_list.index(questions_string)]
+                                    all_scores.extend(
+                                        convert_results_structured(
+                                            batch_result, n_questions, include_notes=include_notes
+                                        )
+                                    )
+                                result_list = all_scores
+                            else:
+                                result_string = '\n'.join(result_string_list)
+                                result_list = convert_results(result_string, column_header)
+
                             if column_header in df.columns:
                                 df[column_header] = result_list
                             else:
@@ -477,7 +442,7 @@ def example_generator(questionnaire, run):
                             remaining = max_retries - _retry
                             if remaining > 0:
                                 logger.warning(
-                                    "Parse failure on {} (attempt {}/{}); retrying…",
+                                    "Parse failure on {} (attempt {}/{}); retrying\u2026",
                                     column_header,
                                     _retry + 1,
                                     1 + max_retries,

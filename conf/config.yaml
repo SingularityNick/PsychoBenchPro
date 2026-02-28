@@ -15,11 +15,12 @@ hydra:
 #   - ollama/llama2, ollama/llama3.2 (local; no API key needed)
 model: ollama/deepseek-r1:latest
 
-# Allowed LiteLLM provider prefixes. Model must start with one of these (e.g. openai/..., anthropic/..., gemini/..., ollama/...).
+# Allowed LiteLLM provider prefixes. Model must start with one of these (e.g. openai/..., anthropic/..., gemini/..., openrouter/..., ollama/...).
 allowed_providers:
   - gemini
   - anthropic
   - openai
+  - openrouter
   - ollama
 
 # Comma-separated list of questionnaires, or ALL.
@@ -50,7 +51,7 @@ use_structured_output: true
 # Include an optional free-text "notes" field in each structured output answer item.
 # Only has effect when use_structured_output is true; ignored otherwise.
 # When true, each answer may include rough notes or reasoning from the LLM (can also be empty).
-# When false, the structured output schema contains only question_index and score (no notes).
+# When false, the structured output schema contains only score fields (no notes).
 structured_output_notes: true
 
 # Batch size for splitting questionnaire questions into chunks for LLM calls.

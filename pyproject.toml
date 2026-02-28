@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "psychobench-pro"
 version = "0.1.0"
@@ -18,6 +22,10 @@ dependencies = [
     "loguru>=0.7.0",
     "anthropic>=0.39.0",
     "pydantic>=2.0.0",
+    "tiktoken>=0.5.0",
+    "google-genai>=1.0.0",
+    "python-dotenv>=1.0.0",
+    "transformers>=4.36.0",
 ]
 
 [dependency-groups]
@@ -48,3 +56,6 @@ ignore = []
 
 [tool.ruff.lint.isort]
 known-first-party = ["psychobench"]
+
+[tool.setuptools]
+py-modules = ["example_generator", "run_psychobench", "utils"]
