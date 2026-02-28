@@ -1,11 +1,12 @@
 import os
 import re
 import time
+from functools import cache
 
 import litellm
 import pandas as pd
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, create_model
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -22,34 +23,18 @@ TEXT_COMPLETION_MODEL_PATTERN = re.compile(
 
 
 # ---------------------------------------------------------------------------
-# Pydantic model for structured LLM output
+# Dynamic Pydantic model for structured LLM output
 # ---------------------------------------------------------------------------
 
 
-class AnswerItem(BaseModel):
-    """One questionnaire answer: 1-based question index and integer score."""
-
-    question_index: str = Field(
-        ...,
-        description="1-based question number as string, e.g. '1', '2'.",
-    )
-    score: int = Field(
-        ...,
-        description="Integer rating for that question.",
-    )
-
-
-class QuestionnaireResponse(BaseModel):
-    """Structured response from the LLM for a batch of questionnaire items.
-
-    Each element in `answers` is an AnswerItem with question_index (string) and
-    score (int).
-    """
-
-    answers: list[AnswerItem] = Field(
-        ...,
-        description="List of answers, one per question, in order.",
-    )
+@cache
+def _build_response_model(n_questions: int) -> type[BaseModel]:
+    """Return a Pydantic model with exactly *n_questions* required integer fields q1..qN."""
+    fields = {
+        f"q{i}": (int, Field(..., ge=1, le=5, description=f"Score for question {i}"))
+        for i in range(1, n_questions + 1)
+    }
+    return create_model("QuestionnaireResponse", **fields)
 
 
 def _is_text_completion_model(model: str) -> bool:
@@ -116,7 +101,7 @@ def _llm_completion(
     prompt=None,
     temperature=0,
     n=1,
-    max_tokens=1024,
+    max_tokens=8192,
     api_key=None,
     delay=1,
     response_format=None,
@@ -172,7 +157,7 @@ def chat(
     messages,
     temperature=0,
     n=1,
-    max_tokens=1024,
+    max_tokens=8192,
     api_key=None,
     delay=1,
     response_format=None,
@@ -196,7 +181,7 @@ def completion(
     prompt,
     temperature=0,
     n=1,
-    max_tokens=1024,
+    max_tokens=8192,
     api_key=None,
     delay=1,
 ):
@@ -224,42 +209,33 @@ def convert_results(result, column_header):
     return result_list
 
 
-def convert_results_structured(result_json: str, column_header: str) -> list[int]:
-    """Parse a single structured JSON LLM response into a flat list of integer scores.
+def convert_results_structured(result_json: str, n_questions: int) -> list[int]:
+    """Parse a structured JSON LLM response into a flat list of integer scores.
 
-    Expected format (matches :class:`QuestionnaireResponse`)::
+    Expected format (flat keys q1..qN)::
 
-        {"answers": [{"question_index": "1", "score": 5}, {"question_index": "2", "score": 3}, ...]}
+        {"q1": 5, "q2": 3, ...}
 
-    Expects one JSON object per call (the generator parses each API response separately).
-    Falls back to :func:`convert_results` if parsing fails.
+    Raises ``ValidationError`` if the JSON does not match the dynamic schema.
     """
-    try:
-        parsed = QuestionnaireResponse.model_validate_json(result_json)
-        return [item.score for item in parsed.answers]
-    except Exception:
-        pass
-    logger.warning(
-        "Structured output parsing failed for {}; falling back to text parser.",
-        column_header,
-    )
-    return convert_results(result_json, column_header)
+    model_cls = _build_response_model(n_questions)
+    parsed = model_cls.model_validate_json(result_json.strip())
+    return [getattr(parsed, f"q{i}") for i in range(1, n_questions + 1)]
 
 
-def _build_structured_prompt(questionnaire: dict, questions_string: str) -> str:
+def _build_structured_prompt(
+    questionnaire: dict, questions_string: str, n_questions: int
+) -> str:
     """Return a prompt that asks the LLM to respond as structured JSON.
 
-    The prompt instructs the model to return a JSON object matching
-    :class:`QuestionnaireResponse` (answers as list of question_index/score
-    objects) instead of the legacy "index: score" text format.
+    The prompt instructs the model to return a JSON object with flat keys
+    ``q1`` through ``q{n_questions}``, each mapping to an integer score.
     """
     base_prompt = questionnaire["prompt"]
     return (
         f"{base_prompt}\n{questions_string}\n\n"
-        "Respond with a JSON object in this format: "
-        '{"answers": [{"question_index": "1", "score": <score>}, ...]}\n'
-        "where question_index is the 1-based question number as a string and "
-        "score is your integer rating."
+        f"Respond with a JSON object with keys q1 through q{n_questions}, "
+        "where each value is your integer rating (1-5)."
     )
 
 
@@ -324,6 +300,7 @@ def example_generator(questionnaire, run):
                             all_scores: list[int] = []
 
                         for questions_string in questions_list:
+                            n_questions = questions_string.count("\n") + 1
                             result = ""
                             use_text_completion = _is_text_completion_model(model)
                             temperature = getattr(run, "temperature", 0)
@@ -339,8 +316,9 @@ def example_generator(questionnaire, run):
                                 # Chat models: GPT, Claude, Gemini, Llama, etc.
                                 if use_structured:
                                     structured_prompt = _build_structured_prompt(
-                                        questionnaire, questions_string
+                                        questionnaire, questions_string, n_questions
                                     )
+                                    response_model = _build_response_model(n_questions)
                                     inputs = previous_records + [
                                         {"role": "system", "content": questionnaire["inner_setting"]},
                                         {"role": "user", "content": structured_prompt},
@@ -349,7 +327,7 @@ def example_generator(questionnaire, run):
                                         model,
                                         inputs,
                                         **api_kw,
-                                        response_format=QuestionnaireResponse,
+                                        response_format=response_model,
                                     )
                                     previous_records.append({
                                         "role": "user",
@@ -368,10 +346,6 @@ def example_generator(questionnaire, run):
                                 previous_records.append({"role": "assistant", "content": result})
 
                             result_string_list.append(result.strip())
-                            if use_structured:
-                                all_scores.extend(
-                                    convert_results_structured(result.strip(), column_header)
-                                )
 
                             # Write the prompts and results to the run-specific output dir
                             prompts_dir = os.path.join(run.output_dir, "prompts")
@@ -392,13 +366,20 @@ def example_generator(questionnaire, run):
                             with open(responses_path, "a") as file:
                                 file.write(f'{result}\n====\n')
 
-                        if use_structured:
-                            result_list = all_scores
-                        else:
-                            result_string = '\n'.join(result_string_list)
-                            result_list = convert_results(result_string, column_header)
-
                         try:
+                            if use_structured:
+                                all_scores: list[int] = []
+                                for questions_string in questions_list:
+                                    n_questions = questions_string.count("\n") + 1
+                                    batch_result = result_string_list[questions_list.index(questions_string)]
+                                    all_scores.extend(
+                                        convert_results_structured(batch_result, n_questions)
+                                    )
+                                result_list = all_scores
+                            else:
+                                result_string = '\n'.join(result_string_list)
+                                result_list = convert_results(result_string, column_header)
+
                             if column_header in df.columns:
                                 df[column_header] = result_list
                             else:

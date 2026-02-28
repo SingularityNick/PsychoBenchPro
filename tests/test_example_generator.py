@@ -4,11 +4,12 @@ import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 sys.path.insert(0, ".")  # noqa: E402
 
 from example_generator import (
-    QuestionnaireResponse,
+    _build_response_model,
     _build_structured_prompt,
     _is_text_completion_model,
     convert_results,
@@ -50,61 +51,54 @@ class TestIsTextCompletionModel:
 
 
 # ---------------------------------------------------------------------------
-# QuestionnaireResponse Pydantic model
+# _build_response_model (dynamic Pydantic model factory)
 # ---------------------------------------------------------------------------
 
 
-class TestQuestionnaireResponse:
-    """Tests for the Pydantic structured output model."""
+class TestBuildResponseModel:
+    """Tests for the dynamic Pydantic structured output model."""
 
     def test_valid_json_parses(self):
-        raw = (
-            '{"answers": [{"question_index": "1", "score": 5},'
-            ' {"question_index": "2", "score": 3},'
-            ' {"question_index": "3", "score": 7}]}'
-        )
-        resp = QuestionnaireResponse.model_validate_json(raw)
-        assert len(resp.answers) == 3
-        assert resp.answers[0].question_index == "1"
-        assert resp.answers[0].score == 5
-        assert resp.answers[2].question_index == "3"
-        assert resp.answers[2].score == 7
+        raw = '{"q1": 5, "q2": 3, "q3": 4}'
+        model_cls = _build_response_model(3)
+        resp = model_cls.model_validate_json(raw)
+        assert resp.q1 == 5
+        assert resp.q2 == 3
+        assert resp.q3 == 4
 
-    def test_empty_answers_list(self):
-        raw = '{"answers": []}'
-        resp = QuestionnaireResponse.model_validate_json(raw)
-        assert resp.answers == []
-
-    def test_missing_answers_key_raises(self):
-        raw = '{"scores": [1, 2, 3]}'
+    def test_missing_field_raises(self):
+        raw = '{"q1": 5}'
+        model_cls = _build_response_model(2)
         with pytest.raises(ValueError):
-            QuestionnaireResponse.model_validate_json(raw)
-
-    def test_missing_required_field_raises(self):
-        raw = '{"answers": [{"question_index": "1"}]}'
-        with pytest.raises(ValueError):
-            QuestionnaireResponse.model_validate_json(raw)
+            model_cls.model_validate_json(raw)
 
     def test_non_integer_score_raises(self):
-        raw = '{"answers": [{"question_index": "1", "score": "high"}]}'
+        raw = '{"q1": "high"}'
+        model_cls = _build_response_model(1)
         with pytest.raises(ValueError):
-            QuestionnaireResponse.model_validate_json(raw)
+            model_cls.model_validate_json(raw)
 
-    def test_schema_generation(self):
-        """The model can generate a JSON schema (used by LiteLLM for structured output)."""
-        schema = QuestionnaireResponse.model_json_schema()
-        assert "answers" in schema.get("properties", {})
-        assert schema["properties"]["answers"]["type"] == "array"
-        items = schema["properties"]["answers"].get("items", {})
-        if "$ref" in items:
-            defs = schema.get("$defs", {})
-            ref_name = items["$ref"].split("/")[-1]
-            item_schema = defs.get(ref_name, {})
-        else:
-            item_schema = items
-        assert "required" in item_schema
-        assert "question_index" in item_schema["required"]
-        assert "score" in item_schema["required"]
+    def test_score_out_of_range_raises(self):
+        raw = '{"q1": 0}'
+        model_cls = _build_response_model(1)
+        with pytest.raises(ValueError):
+            model_cls.model_validate_json(raw)
+        raw = '{"q1": 6}'
+        with pytest.raises(ValueError):
+            model_cls.model_validate_json(raw)
+
+    def test_schema_has_all_required_fields(self):
+        """The model generates a JSON schema with all q1..qN fields required."""
+        model_cls = _build_response_model(3)
+        schema = model_cls.model_json_schema()
+        props = schema.get("properties", {})
+        assert "q1" in props
+        assert "q2" in props
+        assert "q3" in props
+        assert set(schema.get("required", [])) == {"q1", "q2", "q3"}
+
+    def test_caching_returns_same_class(self):
+        assert _build_response_model(5) is _build_response_model(5)
 
 
 # ---------------------------------------------------------------------------
@@ -115,50 +109,35 @@ class TestQuestionnaireResponse:
 class TestConvertResultsStructured:
     """Tests for the structured JSON response parser."""
 
-    def test_valid_new_format_returns_scores(self):
-        raw = (
-            '{"answers": [{"question_index": "1", "score": 5},'
-            ' {"question_index": "2", "score": 3},'
-            ' {"question_index": "3", "score": 7}]}'
-        )
-        result = convert_results_structured(raw, "test-col")
-        assert result == [5, 3, 7]
+    def test_valid_format_returns_scores(self):
+        raw = '{"q1": 5, "q2": 3, "q3": 4}'
+        result = convert_results_structured(raw, 3)
+        assert result == [5, 3, 4]
 
-    def test_empty_answers_returns_empty(self):
-        raw = '{"answers": []}'
-        result = convert_results_structured(raw, "test-col")
-        assert result == []
+    def test_single_question(self):
+        raw = '{"q1": 2}'
+        result = convert_results_structured(raw, 1)
+        assert result == [2]
 
-    def test_json_with_extra_keys_still_parsed(self):
-        """Response may include $defs or other schema keys; parser uses only 'answers'."""
-        raw = (
-            '{"$defs": {"AnswerItem": {}},'
-            ' "answers": [{"question_index": "1", "score": 4},'
-            ' {"question_index": "2", "score": 2}]}'
-        )
-        result = convert_results_structured(raw, "test-col")
-        assert result == [4, 2]
+    def test_invalid_json_raises(self):
+        """Invalid input raises ValidationError."""
+        with pytest.raises(ValidationError):
+            convert_results_structured("1: 5\n2: 3", 2)
 
-    def test_invalid_json_falls_back_to_text_parser(self):
-        """When JSON parsing fails, falls back to legacy text parser."""
-        text = "1: 5\n2: 3\n3: 7"
-        result = convert_results_structured(text, "test-col")
-        assert result == [5, 3, 7]
-
-    def test_malformed_json_falls_back(self):
-        """Malformed JSON (missing quotes) triggers fallback."""
-        text = "{answers: bad}"
-        result = convert_results_structured(text, "test-col")
-        assert isinstance(result, list)
+    def test_missing_field_raises(self):
+        """Fewer fields than n_questions raises ValidationError."""
+        with pytest.raises(ValidationError):
+            convert_results_structured('{"q1": 5}', 3)
 
     def test_scores_are_integers(self):
-        raw = (
-            '{"answers": [{"question_index": "1", "score": 1},'
-            ' {"question_index": "2", "score": 7},'
-            ' {"question_index": "3", "score": 4}]}'
-        )
-        result = convert_results_structured(raw, "test-col")
+        raw = '{"q1": 1, "q2": 4, "q3": 3}'
+        result = convert_results_structured(raw, 3)
         assert all(isinstance(s, int) for s in result)
+
+    def test_preserves_field_order(self):
+        raw = '{"q3": 1, "q1": 5, "q2": 3}'
+        result = convert_results_structured(raw, 3)
+        assert result == [5, 3, 1]
 
 
 # ---------------------------------------------------------------------------
@@ -172,22 +151,26 @@ class TestBuildStructuredPrompt:
     def test_includes_questions(self):
         q = {"prompt": "Rate these:", "inner_setting": "You are a helper."}
         questions = "1. I am talkative.\n2. I am reserved."
-        prompt = _build_structured_prompt(q, questions)
+        prompt = _build_structured_prompt(q, questions, 2)
         assert "1. I am talkative." in prompt
         assert "2. I am reserved." in prompt
 
     def test_includes_json_format_instructions(self):
         q = {"prompt": "Rate these:", "inner_setting": "You are a helper."}
-        prompt = _build_structured_prompt(q, "1. Q1")
+        prompt = _build_structured_prompt(q, "1. Q1", 1)
         assert "JSON" in prompt
-        assert '"answers"' in prompt
-        assert "question_index" in prompt
-        assert "score" in prompt
-        assert '{"question_index": "1", "score": <score>}' in prompt
+        assert "q1" in prompt
+        assert "1-5" in prompt
+
+    def test_includes_correct_range(self):
+        q = {"prompt": "Rate these:", "inner_setting": "You are a helper."}
+        prompt = _build_structured_prompt(q, "1. Q1\n2. Q2\n3. Q3", 3)
+        assert "q1" in prompt
+        assert "q3" in prompt
 
     def test_includes_base_prompt(self):
         q = {"prompt": "Please evaluate yourself.", "inner_setting": "You are a helper."}
-        prompt = _build_structured_prompt(q, "1. Q1")
+        prompt = _build_structured_prompt(q, "1. Q1", 1)
         assert "Please evaluate yourself." in prompt
 
 
@@ -366,13 +349,9 @@ class TestMaxParseFailureRetries:
         run = _make_run_config(csv_path, tmp_path, max_retries=1, use_structured=True)
         questionnaire = _make_questionnaire(num_questions=3)
 
-        # Return only 1 answer when 3 are expected
-        bad_json = '{"answers": [{"question_index": "1", "score": 5}]}'
-        good_json = (
-            '{"answers": [{"question_index": "1", "score": 5},'
-            ' {"question_index": "2", "score": 3},'
-            ' {"question_index": "3", "score": 4}]}'
-        )
+        # Return only 1 answer when 3 are expected (missing q2, q3)
+        bad_json = '{"q1": 5}'
+        good_json = '{"q1": 5, "q2": 3, "q3": 4}'
         mock_chat.side_effect = [bad_json, good_json]
 
         example_generator(questionnaire, run)
