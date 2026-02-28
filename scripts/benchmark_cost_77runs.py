@@ -8,8 +8,6 @@ Cost = (input_tokens/1e6)*input_$perM + (output_tokens/1e6)*output_$perM.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 # Per full pass (14 questionnaires), from QUESTIONNAIRE_TOKEN_COUNTS.md
 INPUT_SUM = {
     "OpenAI": 331 + 534 + 509 + 1442 + 235 + 274 + 720 + 312 + 396 + 258 + 713 + 405 + 1743 + 1028,
@@ -85,7 +83,7 @@ def main() -> None:
     print("=" * 100)
     print(f"{'Model':<52} {'Tokenizer':<10} {'Input tok':>12} {'Output tok':>12} {'Cost (USD)':>12}")
     print("-" * 100)
-    for model_id, tok, in_tok, out_tok, pin, pout, cost in rows:
+    for model_id, tok, in_tok, out_tok, _pin, _pout, cost in rows:
         print(f"{model_id:<52} {tok:<10} {in_tok:>12,} {out_tok:>12,} {cost:>12.2f}")
     print("-" * 100)
     print(f"{'TOTAL (all 27 models)':<52} {'':<10} {'':<12} {'':<12} {total_cost:>12.2f}")

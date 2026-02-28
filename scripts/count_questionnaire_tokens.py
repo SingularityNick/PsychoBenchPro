@@ -217,10 +217,16 @@ def main() -> None:
     total_w = 12 + 6 * (w + 1)
     print("Questionnaire input tokens (system + structured user message)")
     print("=" * total_w)
-    print(f"{headers[0]:<12} {headers[1]:>{w}} {headers[2]:>{w}} {headers[3]:>{w}} {headers[4]:>{w}} {headers[5]:>{w}} {headers[6]:>{w}}")
+    print(
+        f"{headers[0]:<12} {headers[1]:>{w}} {headers[2]:>{w}} {headers[3]:>{w}} "
+        f"{headers[4]:>{w}} {headers[5]:>{w}} {headers[6]:>{w}}"
+    )
     print("-" * total_w)
     for row in rows:
-        print(f"{row[0]:<12} {str(row[1]):>{w}} {str(row[2]):>{w}} {str(row[3]):>{w}} {str(row[4]):>{w}} {str(row[5]):>{w}} {str(row[6]):>{w}}")
+        print(
+            f"{row[0]:<12} {str(row[1]):>{w}} {str(row[2]):>{w}} {str(row[3]):>{w}} "
+            f"{str(row[4]):>{w}} {str(row[5]):>{w}} {str(row[6]):>{w}}"
+        )
     print("=" * total_w)
     if any(r[2] == "-" or r[3] == "-" for r in rows):
         print("\nSet ANTHROPIC_API_KEY and GEMINI_API_KEY (or GOOGLE_API_KEY) to include those columns.")
@@ -245,7 +251,10 @@ def main() -> None:
         o_ds = o_ds if o_ds is not None else "-"
         o_llama = o_llama if o_llama is not None else "-"
         o_qwen = o_qwen if o_qwen is not None else "-"
-        print(f"{q['name']:<12} {n:>{out_w}} {o_openai:>{out_w}} {str(o_ds):>{out_w}} {str(o_llama):>{out_w}} {str(o_qwen):>{out_w}}")
+        print(
+            f"{q['name']:<12} {n:>{out_w}} {o_openai:>{out_w}} {str(o_ds):>{out_w}} "
+            f"{str(o_llama):>{out_w}} {str(o_qwen):>{out_w}}"
+        )
     print("-" * out_total_w)
 
 
