@@ -349,13 +349,9 @@ class TestMaxParseFailureRetries:
         run = _make_run_config(csv_path, tmp_path, max_retries=1, use_structured=True)
         questionnaire = _make_questionnaire(num_questions=3)
 
-        # Return only 1 answer when 3 are expected
-        bad_json = '{"answers": [{"question_index": "1", "score": 5}]}'
-        good_json = (
-            '{"answers": [{"question_index": "1", "score": 5},'
-            ' {"question_index": "2", "score": 3},'
-            ' {"question_index": "3", "score": 4}]}'
-        )
+        # Return only 1 answer when 3 are expected (missing q2, q3)
+        bad_json = '{"q1": 5}'
+        good_json = '{"q1": 5, "q2": 3, "q3": 4}'
         mock_chat.side_effect = [bad_json, good_json]
 
         example_generator(questionnaire, run)

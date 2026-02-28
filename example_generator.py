@@ -346,10 +346,6 @@ def example_generator(questionnaire, run):
                                 previous_records.append({"role": "assistant", "content": result})
 
                             result_string_list.append(result.strip())
-                            if use_structured:
-                                all_scores.extend(
-                                    convert_results_structured(result.strip(), n_questions)
-                                )
 
                             # Write the prompts and results to the run-specific output dir
                             prompts_dir = os.path.join(run.output_dir, "prompts")
@@ -370,13 +366,20 @@ def example_generator(questionnaire, run):
                             with open(responses_path, "a") as file:
                                 file.write(f'{result}\n====\n')
 
-                        if use_structured:
-                            result_list = all_scores
-                        else:
-                            result_string = '\n'.join(result_string_list)
-                            result_list = convert_results(result_string, column_header)
-
                         try:
+                            if use_structured:
+                                all_scores: list[int] = []
+                                for questions_string in questions_list:
+                                    n_questions = questions_string.count("\n") + 1
+                                    batch_result = result_string_list[questions_list.index(questions_string)]
+                                    all_scores.extend(
+                                        convert_results_structured(batch_result, n_questions)
+                                    )
+                                result_list = all_scores
+                            else:
+                                result_string = '\n'.join(result_string_list)
+                                result_list = convert_results(result_string, column_header)
+
                             if column_header in df.columns:
                                 df[column_header] = result_list
                             else:
