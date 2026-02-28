@@ -17,6 +17,9 @@ from utils import run_psychobench
 # Config path relative to this test file (tests/test_hydra_config.py) -> ../conf
 CONFIG_PATH = "../conf"
 CONFIG_NAME = "config"
+# Project root and path to config file (single source of truth for allowed_providers etc.)
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CONFIG_FILE = os.path.join(_ROOT, "conf", "config.yaml")
 
 
 class TestComposeAPI:
@@ -30,28 +33,72 @@ class TestComposeAPI:
         assert hasattr(cfg, "questionnaire")
         assert hasattr(cfg, "shuffle_count")
         assert hasattr(cfg, "test_count")
-        assert hasattr(cfg, "name_exp")
         assert hasattr(cfg, "significance_level")
         assert hasattr(cfg, "mode")
-        assert hasattr(cfg, "openai_key")
+        assert hasattr(cfg, "allowed_providers")
+        assert hasattr(cfg, "use_structured_output")
+        assert hasattr(cfg, "batch_size")
+        assert hasattr(cfg, "max_parse_failure_retries")
         assert cfg.mode == "auto"
+        assert cfg.batch_size == 30
+        assert cfg.max_parse_failure_retries == 3
         assert cfg.significance_level == 0.01
+        # use_structured_output and allowed_providers must match conf/config.yaml (no hardcoded values)
+        expected = OmegaConf.load(CONFIG_FILE)
+        assert cfg.use_structured_output == expected.use_structured_output
+        assert list(cfg.allowed_providers) == list(expected.allowed_providers)
         assert OmegaConf.is_config(cfg)
 
     def test_compose_overrides_apply(self):
         """CLI-style overrides are applied to composed config."""
         overrides = [
-            "model=my-model",
+            "model=openai/my-model",
             "questionnaire=BFI",
             "mode=generation",
             "shuffle_count=0",
         ]
         with initialize(version_base=None, config_path=CONFIG_PATH):
             cfg = compose(config_name=CONFIG_NAME, overrides=overrides)
-        assert cfg.model == "my-model"
+        assert cfg.model == "openai/my-model"
         assert cfg.questionnaire == "BFI"
         assert cfg.mode == "generation"
         assert cfg.shuffle_count == 0
+
+    def test_compose_batch_size_null_no_batching(self):
+        """batch_size=null means no batching (full questionnaire as single batch)."""
+        with initialize(version_base=None, config_path=CONFIG_PATH):
+            cfg = compose(
+                config_name=CONFIG_NAME,
+                overrides=["batch_size=null"],
+            )
+        assert cfg.batch_size is None
+
+    def test_compose_batch_size_override(self):
+        """batch_size can be overridden to a custom value."""
+        with initialize(version_base=None, config_path=CONFIG_PATH):
+            cfg = compose(
+                config_name=CONFIG_NAME,
+                overrides=["batch_size=10"],
+            )
+        assert cfg.batch_size == 10
+
+    def test_compose_max_parse_failure_retries_override(self):
+        """max_parse_failure_retries can be overridden to a custom value."""
+        with initialize(version_base=None, config_path=CONFIG_PATH):
+            cfg = compose(
+                config_name=CONFIG_NAME,
+                overrides=["max_parse_failure_retries=5"],
+            )
+        assert cfg.max_parse_failure_retries == 5
+
+    def test_compose_max_parse_failure_retries_zero_disables(self):
+        """max_parse_failure_retries=0 disables retries (fail on first error)."""
+        with initialize(version_base=None, config_path=CONFIG_PATH):
+            cfg = compose(
+                config_name=CONFIG_NAME,
+                overrides=["max_parse_failure_retries=0"],
+            )
+        assert cfg.max_parse_failure_retries == 0
 
     def test_compose_questionnaire_comma_separated(self):
         """questionnaire=BFI,EPQ-R is preserved when quoted (Hydra treats unquoted comma as sweep)."""
@@ -81,6 +128,20 @@ class TestRunPsychobenchWithComposedConfig:
         with pytest.raises(ValueError, match="questionnaire must be set"):
             run_psychobench(cfg, mock_generator)
 
+    def test_run_psychobench_raises_when_model_lacks_provider_prefix(self):
+        """ValueError when model does not start with an allowed provider prefix."""
+        from example_generator import example_generator
+
+        overrides = [
+            "questionnaire=BFI",
+            "mode=testing",
+            "model=gpt-4",
+        ]
+        with initialize(version_base=None, config_path=CONFIG_PATH):
+            cfg = compose(config_name=CONFIG_NAME, overrides=overrides)
+        with pytest.raises(ValueError, match="model must start with a provider prefix"):
+            run_psychobench(cfg, example_generator)
+
     def test_run_psychobench_builds_run_config_and_calls_generator(self):
         """Composed cfg flows to run_psychobench; mock generator receives correct run paths."""
         calls = []
@@ -91,7 +152,7 @@ class TestRunPsychobenchWithComposedConfig:
         overrides = [
             "questionnaire=BFI",
             "mode=testing",
-            "model=test-model",
+            "model=openai/test-model",
         ]
         with initialize(version_base=None, config_path=CONFIG_PATH):
             cfg = compose(config_name=CONFIG_NAME, overrides=overrides)
@@ -99,7 +160,7 @@ class TestRunPsychobenchWithComposedConfig:
         assert len(calls) >= 1
         questionnaire, run = calls[0]
         assert questionnaire["name"] == "BFI"
-        assert run.model == "test-model"
+        assert run.model == "openai/test-model"
         assert run.testing_file == "results/test-model-BFI.csv"
         assert run.results_file == "results/test-model-BFI.md"
         assert run.figures_file == "test-model-BFI.png"
@@ -129,7 +190,7 @@ class TestRunPsychobenchWithComposedConfig:
         overrides = [
             "questionnaire=BFI",
             "mode=generation",
-            "model=test-gen",
+            "model=openai/test-gen",
             "shuffle_count=0",
             "test_count=1",
         ]

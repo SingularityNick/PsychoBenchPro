@@ -14,6 +14,8 @@ import scipy.stats as stats
 from loguru import logger
 from omegaconf import OmegaConf
 
+from example_generator import _model_name_for_files
+
 
 def get_questionnaire(questionnaire_name):
     try:
@@ -536,7 +538,7 @@ def run_psychobench(cfg, generator):
 
     for questionnaire_name in questionnaire_list:
         questionnaire = get_questionnaire(questionnaire_name)
-        base = cfg.name_exp if cfg.name_exp is not None else cfg.model
+        base = _model_name_for_files(cfg.model)
         cfg_copy = OmegaConf.create(OmegaConf.to_container(cfg, resolve=True))
         OmegaConf.set_struct(cfg_copy, False)
         run = OmegaConf.merge(
@@ -550,6 +552,9 @@ def run_psychobench(cfg, generator):
         )
 
         os.makedirs(os.path.join(output_dir, "figures"), exist_ok=True)
+        testing_dir = os.path.dirname(run.testing_file)
+        if testing_dir:
+            os.makedirs(testing_dir, exist_ok=True)
         if run.mode in ['generation', 'auto']:
             generate_testfile(questionnaire, run)
 

@@ -1,9 +1,12 @@
 import os
+import re
 import time
+from functools import cache
 
 import litellm
 import pandas as pd
 from loguru import logger
+from pydantic import BaseModel, Field, create_model
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -11,60 +14,192 @@ from tenacity import (
 )
 from tqdm import tqdm
 
+# Models that use prompt-based completion (legacy OpenAI text models).
+# All other models (GPT chat, Claude, Gemini, etc.) use chat with messages.
+TEXT_COMPLETION_MODEL_PATTERN = re.compile(
+    r"^(openai/)?(text-(davinci|curie|babbage|ada)-\d{3})(\b|$)",
+    re.IGNORECASE,
+)
+
+
+# ---------------------------------------------------------------------------
+# Dynamic Pydantic model for structured LLM output
+# ---------------------------------------------------------------------------
+
+
+@cache
+def _build_response_model(n_questions: int) -> type[BaseModel]:
+    """Return a Pydantic model with exactly *n_questions* required integer fields q1..qN."""
+    fields = {
+        f"q{i}": (int, Field(..., ge=1, le=5, description=f"Score for question {i}"))
+        for i in range(1, n_questions + 1)
+    }
+    return create_model("QuestionnaireResponse", **fields)
+
+
+def _is_text_completion_model(model: str) -> bool:
+    """Return True if model uses prompt-based completion (not chat messages)."""
+    return bool(TEXT_COMPLETION_MODEL_PATTERN.search(model))
+
+
+def _provider_prefix(model: str) -> str | None:
+    """Return the provider prefix from a model string (e.g. 'openai' from 'openai/gpt-4'), or None."""
+    m = (model or "").strip()
+    if "/" in m:
+        return m.split("/", 1)[0].lower()
+    return None
+
+
+def _model_name_for_files(model: str) -> str:
+    """Return model string with provider prefix removed, for use in file/dir names."""
+    m = (model or "").strip()
+    if "/" in m:
+        return m.split("/", 1)[1]
+    return m
+
+
+def _validate_model_provider(model: str, allowed_providers: list) -> None:
+    """Raise ValueError if model does not start with one of the allowed provider prefixes."""
+    if not model or not (model := model.strip()):
+        raise ValueError("model must be set and non-empty")
+    prefix = _provider_prefix(model)
+    if prefix is None:
+        raise ValueError(
+            f"model must start with a provider prefix, e.g. openai/, anthropic/, gemini/. "
+            f"Allowed providers: {allowed_providers}. Got: {model!r}"
+        )
+    allowed = [p.lower() for p in (allowed_providers or [])]
+    if prefix not in allowed:
+        raise ValueError(
+            f"model provider {prefix!r} is not in allowed_providers {allowed}. "
+            f"Model must start with one of: {', '.join(p + '/' for p in allowed)}"
+        )
+
+
+def _validate_model_litellm(model: str) -> None:
+    """Raise ValueError if LiteLLM does not recognize the provider or model (fail fast before the loop)."""
+    try:
+        litellm.get_llm_provider(model)
+    except Exception as e:
+        raise ValueError(
+            f"LiteLLM could not resolve provider for model {model!r}. {e}"
+        ) from e
+    try:
+        litellm.get_model_info(model)
+    except Exception as e:
+        raise ValueError(
+            f"Model {model!r} is not in LiteLLM's model registry (unknown or unsupported). "
+            "Use a known model id (e.g. gemini/gemini-2.0-flash, openai/gpt-4). "
+            f"LiteLLM: {e}"
+        ) from e
+
+
+def _llm_completion(
+    model: str,
+    *,
+    messages=None,
+    prompt=None,
+    temperature=0,
+    n=1,
+    max_tokens=8192,
+    api_key=None,
+    delay=1,
+    response_format=None,
+):
+    """Call LiteLLM completion. Supports any provider (OpenAI, Anthropic, Gemini, etc.).
+
+    Parameters
+    ----------
+    response_format : type[BaseModel] | dict | None
+        When a Pydantic BaseModel subclass is passed, LiteLLM requests structured
+        JSON output conforming to the model's schema.  When ``None`` (default),
+        normal text output is used.
+    """
+    time.sleep(delay)
+    kwargs = {
+        "model": model,
+        "temperature": temperature,
+        "n": n,
+        "max_tokens": max_tokens,
+    }
+    if api_key:
+        kwargs["api_key"] = api_key
+    if messages is not None:
+        kwargs["messages"] = messages
+    elif prompt is not None:
+        kwargs["prompt"] = prompt
+    else:
+        raise ValueError("Either messages or prompt must be provided")
+
+    if response_format is not None:
+        kwargs["response_format"] = response_format
+
+    kwargs["drop_params"] = True  # drop unsupported params (e.g. temperature on O-series)
+    response = litellm.completion(**kwargs)
+    # Chat models return message.content; text completion models return .text
+    if n == 1:
+        choice = response.choices[0]
+        if hasattr(choice, "message") and choice.message is not None:
+            return choice.message.content or ""
+        return getattr(choice, "text", "") or ""
+    choices = response.choices
+    choices.sort(key=lambda x: x.index)
+    return [
+        (c.message.content if hasattr(c, "message") and c.message else None)
+        or getattr(c, "text", "")
+        for c in choices
+    ]
+
 
 @retry(wait=wait_random_exponential(min=1, max=60), stop=stop_after_attempt(6))
 def chat(
-    model,                      # gpt-4, gpt-4-0314, gpt-4-32k, gpt-4-32k-0314, gpt-3.5-turbo, gpt-3.5-turbo-0301
-    messages,                   # [{"role": "system"/"user"/"assistant", "content": "Hello!", "name": "example"}]
-    temperature=0,    # [0, 2]: Lower values -> more focused and deterministic; Higher values -> more random.
-    n=1,                        # Chat completion choices to generate for each input message.
-    max_tokens=1024,            # The maximum number of tokens to generate in the chat completion.
-    delay=1           # Seconds to sleep after each request.
+    model,
+    messages,
+    temperature=0,
+    n=1,
+    max_tokens=8192,
+    api_key=None,
+    delay=1,
+    response_format=None,
 ):
-    time.sleep(delay)
-    response = litellm.completion(
-        model=model,
+    """Chat completion for any LiteLLM-supported model (GPT, Claude, Gemini, etc.)."""
+    return _llm_completion(
+        model,
         messages=messages,
         temperature=temperature,
         n=n,
-        max_tokens=max_tokens
+        max_tokens=max_tokens,
+        api_key=api_key,
+        delay=delay,
+        response_format=response_format,
     )
-    if n == 1:
-        return response.choices[0].message.content
-    else:
-        return [i.message.content for i in response.choices]
+
 
 @retry(wait=wait_random_exponential(min=1, max=60), stop=stop_after_attempt(6))
 def completion(
-    model,           # text-davinci-003, text-davinci-002, text-curie-001, text-babbage-001, text-ada-001
-    prompt,          # The prompt(s) to generate completions for, encoded as a string,
-                     # array of strings, array of tokens, or array of token arrays.
-    temperature=0,   # [0, 2]: Lower values -> more focused and deterministic; Higher values -> more random.
-    n=1,             # Completions to generate for each prompt.
-    max_tokens=1024, # The maximum number of tokens to generate in the chat completion.
-    delay=1         # Seconds to sleep after each request.
+    model,
+    prompt,
+    temperature=0,
+    n=1,
+    max_tokens=8192,
+    api_key=None,
+    delay=1,
 ):
-    time.sleep(delay)
-
-    # LiteLLM uses completion() for text completion models
-    response = litellm.completion(
-        model=model,
+    """Text completion for legacy models (text-davinci-003, etc.)."""
+    return _llm_completion(
+        model,
         prompt=prompt,
         temperature=temperature,
         n=n,
-        max_tokens=max_tokens
+        max_tokens=max_tokens,
+        api_key=api_key,
+        delay=delay,
     )
-
-    if n == 1:
-        return response.choices[0].text
-    else:
-        choices = response.choices
-        choices.sort(key=lambda x: x.index)
-        return [choice.text for choice in choices]
 
 
 def convert_results(result, column_header):
-    result = result.strip()  # Remove leading and trailing whitespace
+    """Parse a free-text LLM response into a list of integer scores (legacy parser)."""
+    result = result.strip()
     try:
         result_list = [int(element.strip()[-1]) for element in result.split('\n') if element.strip()]
     except Exception:
@@ -74,15 +209,50 @@ def convert_results(result, column_header):
     return result_list
 
 
+def convert_results_structured(result_json: str, n_questions: int) -> list[int]:
+    """Parse a structured JSON LLM response into a flat list of integer scores.
+
+    Expected format (flat keys q1..qN)::
+
+        {"q1": 5, "q2": 3, ...}
+
+    Raises ``ValidationError`` if the JSON does not match the dynamic schema.
+    """
+    model_cls = _build_response_model(n_questions)
+    parsed = model_cls.model_validate_json(result_json.strip())
+    return [getattr(parsed, f"q{i}") for i in range(1, n_questions + 1)]
+
+
+def _build_structured_prompt(
+    questionnaire: dict, questions_string: str, n_questions: int
+) -> str:
+    """Return a prompt that asks the LLM to respond as structured JSON.
+
+    The prompt instructs the model to return a JSON object with flat keys
+    ``q1`` through ``q{n_questions}``, each mapping to an integer score.
+    """
+    base_prompt = questionnaire["prompt"]
+    return (
+        f"{base_prompt}\n{questions_string}\n\n"
+        f"Respond with a JSON object with keys q1 through q{n_questions}, "
+        "where each value is your integer rating (1-5)."
+    )
+
+
 def example_generator(questionnaire, run):
     testing_file = run.testing_file
     model = run.model
-    records_file = run.name_exp if run.name_exp is not None else model
+    records_file = _model_name_for_files(model)
 
-    # Set API key for LiteLLM (supports OpenAI and other providers)
-    if run.openai_key:
-        os.environ["OPENAI_API_KEY"] = run.openai_key
-        litellm.api_key = run.openai_key
+    allowed = getattr(run, "allowed_providers", None) or ["gemini", "anthropic", "openai", "ollama"]
+    _validate_model_provider(model, allowed)
+    _validate_model_litellm(model)
+
+    use_structured = getattr(run, "use_structured_output", False)
+    max_retries = int(getattr(run, "max_parse_failure_retries", 3))
+
+    if use_structured:
+        logger.info("Structured output mode enabled — responses will be parsed as JSON.")
 
     # Read the existing CSV file into a pandas DataFrame
     df = pd.read_csv(testing_file)
@@ -102,9 +272,14 @@ def example_generator(questionnaire, run):
 
                 # Retrieve the column data as a string
                 questions_list = df.iloc[:, questions_column_index].astype(str)
-                separated_questions = [
-                    questions_list[i:i+30] for i in range(0, len(questions_list), 30)
-                ]
+                batch_size = getattr(run, "batch_size", 30)
+                if batch_size is None:
+                    separated_questions = [questions_list]
+                else:
+                    separated_questions = [
+                        questions_list[i : i + batch_size]
+                        for i in range(0, len(questions_list), batch_size)
+                    ]
                 questions_list = [
                     '\n'.join([f"{i+1}.{q.split('.')[1]}" for i, q in enumerate(questions)])
                     for j, questions in enumerate(separated_questions)
@@ -118,56 +293,93 @@ def example_generator(questionnaire, run):
                     # Insert the updated column into the DataFrame with a unique identifier in the header
                     column_header = f'shuffle{shuffle_count - 1}-test{k}'
 
-                    while(True):
+                    for _retry in range(1 + max_retries):
                         result_string_list = []
                         previous_records = []
+                        if use_structured:
+                            all_scores: list[int] = []
 
                         for questions_string in questions_list:
-                            result = ''
-                            if model == 'text-davinci-003':
+                            n_questions = questions_string.count("\n") + 1
+                            result = ""
+                            use_text_completion = _is_text_completion_model(model)
+                            temperature = getattr(run, "temperature", 0)
+                            api_kw = {"temperature": temperature}
+
+                            if use_text_completion:
                                 inner_setting = questionnaire["inner_setting"].replace(
-                                    'Format: \"index: score\"', 'Format: \"index: score\\\n\"'
+                                    'Format: "index: score"', 'Format: "index: score\\\n"'
                                 )
-                                inputs = inner_setting + questionnaire["prompt"] + '\n' + questions_string
-                                result = completion(model, inputs)
-                            elif model.startswith("gpt"):
-                                inputs = previous_records + [
-                                    {"role": "system", "content": questionnaire["inner_setting"]},
-                                    {"role": "user", "content": questionnaire["prompt"] + '\n' + questions_string}
-                                ]
-                                result = chat(model, inputs)
-                                previous_records.append({
-                                    "role": "user",
-                                    "content": questionnaire["prompt"] + '\n' + questions_string
-                                })
-                                previous_records.append({"role": "assistant", "content": result})
+                                inputs = inner_setting + questionnaire["prompt"] + "\n" + questions_string
+                                result = completion(model, inputs, **api_kw)
                             else:
-                                raise ValueError("The model is not supported or does not exist.")
+                                # Chat models: GPT, Claude, Gemini, Llama, etc.
+                                if use_structured:
+                                    structured_prompt = _build_structured_prompt(
+                                        questionnaire, questions_string, n_questions
+                                    )
+                                    response_model = _build_response_model(n_questions)
+                                    inputs = previous_records + [
+                                        {"role": "system", "content": questionnaire["inner_setting"]},
+                                        {"role": "user", "content": structured_prompt},
+                                    ]
+                                    result = chat(
+                                        model,
+                                        inputs,
+                                        **api_kw,
+                                        response_format=response_model,
+                                    )
+                                    previous_records.append({
+                                        "role": "user",
+                                        "content": structured_prompt,
+                                    })
+                                else:
+                                    inputs = previous_records + [
+                                        {"role": "system", "content": questionnaire["inner_setting"]},
+                                        {"role": "user", "content": questionnaire["prompt"] + "\n" + questions_string},
+                                    ]
+                                    result = chat(model, inputs, **api_kw)
+                                    previous_records.append({
+                                        "role": "user",
+                                        "content": questionnaire["prompt"] + "\n" + questions_string,
+                                    })
+                                previous_records.append({"role": "assistant", "content": result})
 
                             result_string_list.append(result.strip())
 
-                            # Write the prompts and results to the file
-                            os.makedirs("prompts", exist_ok=True)
-                            os.makedirs("responses", exist_ok=True)
+                            # Write the prompts and results to the run-specific output dir
+                            prompts_dir = os.path.join(run.output_dir, "prompts")
+                            responses_dir = os.path.join(run.output_dir, "responses")
+                            os.makedirs(prompts_dir, exist_ok=True)
+                            os.makedirs(responses_dir, exist_ok=True)
 
-                            prompts_path = (
-                                f'prompts/{records_file}-{questionnaire["name"]}'
-                                f'-shuffle{shuffle_count - 1}.txt'
+                            prompts_path = os.path.join(
+                                prompts_dir,
+                                f'{records_file}-{questionnaire["name"]}-shuffle{shuffle_count - 1}.txt',
                             )
                             with open(prompts_path, "a") as file:
                                 file.write(f'{inputs}\n====\n')
-                            responses_path = (
-                                f'responses/{records_file}-{questionnaire["name"]}'
-                                f'-shuffle{shuffle_count - 1}.txt'
+                            responses_path = os.path.join(
+                                responses_dir,
+                                f'{records_file}-{questionnaire["name"]}-shuffle{shuffle_count - 1}.txt',
                             )
                             with open(responses_path, "a") as file:
                                 file.write(f'{result}\n====\n')
 
-                        result_string = '\n'.join(result_string_list)
-
-                        result_list = convert_results(result_string, column_header)
-
                         try:
+                            if use_structured:
+                                all_scores: list[int] = []
+                                for questions_string in questions_list:
+                                    n_questions = questions_string.count("\n") + 1
+                                    batch_result = result_string_list[questions_list.index(questions_string)]
+                                    all_scores.extend(
+                                        convert_results_structured(batch_result, n_questions)
+                                    )
+                                result_list = all_scores
+                            else:
+                                result_string = '\n'.join(result_string_list)
+                                result_list = convert_results(result_string, column_header)
+
                             if column_header in df.columns:
                                 df[column_header] = result_list
                             else:
@@ -175,7 +387,20 @@ def example_generator(questionnaire, run):
                                 insert_count += 1
                             break
                         except Exception:
-                            logger.warning("Unable to capture the responses on {}.", column_header)
+                            remaining = max_retries - _retry
+                            if remaining > 0:
+                                logger.warning(
+                                    "Parse failure on {} (attempt {}/{}); retrying…",
+                                    column_header,
+                                    _retry + 1,
+                                    1 + max_retries,
+                                )
+                            else:
+                                logger.error(
+                                    "Parse failure on {} after {} attempt(s); skipping column.",
+                                    column_header,
+                                    1 + max_retries,
+                                )
 
                     # Write the updated DataFrame back to the CSV file
                     df.to_csv(testing_file, index=False)
