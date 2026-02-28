@@ -1,7 +1,7 @@
 import os
 import re
 import time
-from functools import lru_cache
+from functools import cache
 
 import litellm
 import pandas as pd
@@ -27,7 +27,7 @@ TEXT_COMPLETION_MODEL_PATTERN = re.compile(
 # ---------------------------------------------------------------------------
 
 
-@lru_cache(maxsize=None)
+@cache
 def _build_response_model(n_questions: int) -> type[BaseModel]:
     """Return a Pydantic model with exactly *n_questions* required integer fields q1..qN."""
     fields = {

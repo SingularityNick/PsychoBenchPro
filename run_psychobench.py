@@ -5,6 +5,7 @@ from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 
 from example_generator import example_generator
+from utils import run_psychobench
 
 # Custom resolver: join a list into a comma-separated string for Hydra sweeper params.
 # Usage: model: ${join:${models}}
@@ -12,7 +13,6 @@ OmegaConf.register_new_resolver(
     "join",
     lambda seq: ",".join(str(x) for x in (seq or [])),
 )
-from utils import run_psychobench
 
 
 def _configure_logging():
