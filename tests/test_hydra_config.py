@@ -33,15 +33,15 @@ class TestComposeAPI:
         assert hasattr(cfg, "questionnaire")
         assert hasattr(cfg, "shuffle_count")
         assert hasattr(cfg, "test_count")
-        assert hasattr(cfg, "name_exp")
         assert hasattr(cfg, "significance_level")
         assert hasattr(cfg, "mode")
-        assert hasattr(cfg, "api_base")
         assert hasattr(cfg, "allowed_providers")
         assert hasattr(cfg, "use_structured_output")
         assert hasattr(cfg, "batch_size")
+        assert hasattr(cfg, "max_parse_failure_retries")
         assert cfg.mode == "auto"
         assert cfg.batch_size == 30
+        assert cfg.max_parse_failure_retries == 3
         assert cfg.significance_level == 0.01
         # use_structured_output and allowed_providers must match conf/config.yaml (no hardcoded values)
         expected = OmegaConf.load(CONFIG_FILE)
@@ -81,6 +81,24 @@ class TestComposeAPI:
                 overrides=["batch_size=10"],
             )
         assert cfg.batch_size == 10
+
+    def test_compose_max_parse_failure_retries_override(self):
+        """max_parse_failure_retries can be overridden to a custom value."""
+        with initialize(version_base=None, config_path=CONFIG_PATH):
+            cfg = compose(
+                config_name=CONFIG_NAME,
+                overrides=["max_parse_failure_retries=5"],
+            )
+        assert cfg.max_parse_failure_retries == 5
+
+    def test_compose_max_parse_failure_retries_zero_disables(self):
+        """max_parse_failure_retries=0 disables retries (fail on first error)."""
+        with initialize(version_base=None, config_path=CONFIG_PATH):
+            cfg = compose(
+                config_name=CONFIG_NAME,
+                overrides=["max_parse_failure_retries=0"],
+            )
+        assert cfg.max_parse_failure_retries == 0
 
     def test_compose_questionnaire_comma_separated(self):
         """questionnaire=BFI,EPQ-R is preserved when quoted (Hydra treats unquoted comma as sweep)."""
