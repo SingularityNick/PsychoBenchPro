@@ -6,11 +6,14 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- **Structured output schema**: Response schema now uses required `question_index` and `score` per answer (Pydantic `AnswerItem`) so models (e.g. Gemini) no longer return empty objects. Parser still returns the same `list[int]` in question order.
+- **Structured output schema**: Response schema now uses a **dynamic** Pydantic model with flat keys `q1`..`qN` (one required integer field per question, `ge=1`, `le=5`) instead of the previous `answers` array of `{question_index, score}` objects. Built via `_build_response_model(n_questions)` (cached). Improves reliability with models that returned empty or malformed nested objects; flat format is simpler for LLMs to produce.
+- **Structured output parsing**: `convert_results_structured` now takes `n_questions` instead of `column_header` and no longer falls back to the legacy text parser on JSON failure; invalid or incomplete JSON raises `ValidationError`.
+- **Default max_tokens**: Increased from 1024 to 8192 for LLM completion calls to better support long questionnaires.
 
 ### Added
 
-- **Optional structured output**: New config option `use_structured_output` (default: `false`) enables JSON-mode structured output for LLM responses. When enabled, the LLM is asked to return answers as a JSON object conforming to a Pydantic schema (`QuestionnaireResponse`), which is far more reliable than the legacy text-based "last digit per line" parser. Requires a model that supports structured output / JSON mode (most modern models do). Falls back gracefully to the legacy parser if JSON parsing fails. Enable with `use_structured_output=true` on the CLI or in `conf/config.yaml`.
+- **Benchmark model list and `join` resolver**: `conf/benchmark.yaml` now defines a `models` list and uses a Hydra/OmegaConf `join` resolver so the sweeper param is `model: ${join:${models}}`. Enables editing a single list of models instead of a long comma-separated string. `run_psychobench.py` registers the `join` resolver.
+- **Fast multirun config**: New `conf/fast-multirun.yaml` for quick multirun over a small set of models (e.g. `ollama/deepseek-r1:latest`, `gemini/gemini-3-flash-preview`).
 - **Benchmark config**: `conf/benchmark.yaml` for running a Hydra multirun over multiple models without listing them on the CLI. Run with `uv run python run_psychobench.py --config-name benchmark`; edit `hydra.sweeper.params.model` in that file to change the model list. README updated with a "Benchmark config" subsection under Configuration.
 - **Multi-provider LLM support**: Model must use a provider prefix (e.g. `openai/gpt-4`, `anthropic/claude-3-5-sonnet`, `gemini/gemini-2.0-flash`, `ollama/llama2`). Config option `allowed_providers` (default: `gemini`, `anthropic`, `openai`, `ollama`) restricts which providers can be used. Validation runs at startup so invalid or unsupported models fail fast.
 - **Ollama provider**: Support for local models via [Ollama](https://ollama.ai/) using the `ollama/` prefix (e.g. `ollama/llama2`, `ollama/deepseek-r1:latest`). No API key required when using Ollama.
