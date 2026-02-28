@@ -15,11 +15,12 @@ hydra:
 #   - ollama/llama2, ollama/llama3.2 (local; no API key needed)
 model: ollama/deepseek-r1:latest
 
-# Allowed LiteLLM provider prefixes. Model must start with one of these (e.g. openai/..., anthropic/..., gemini/..., ollama/...).
+# Allowed LiteLLM provider prefixes. Model must start with one of these (e.g. openai/..., anthropic/..., gemini/..., openrouter/..., ollama/...).
 allowed_providers:
   - gemini
   - anthropic
   - openai
+  - openrouter
   - ollama
 
 # Comma-separated list of questionnaires, or ALL.

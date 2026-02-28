@@ -6,6 +6,16 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Token estimation and cost tooling**: Scripts and documentation for questionnaire token counts and benchmark cost estimates.
+  - **`scripts/count_questionnaire_tokens.py`**: Counts input/output tokens per questionnaire using multiple tokenizers (OpenAI/tiktoken, Anthropic, Gemini, DeepSeek, Llama, Qwen via Hugging Face). Builds the same prompt structure as `example_generator` (system + structured user message). Prints tables for input tokens (6 tokenizers) and output token upper bounds (structured JSON).
+  - **`scripts/benchmark_cost_77runs.py`**: Computes total cost for 77 shuffle runs per model (all 14 questionnaires) using token totals from `QUESTIONNAIRE_TOKEN_COUNTS.md` and pricing from `PRICING_REFERENCE.md`. Covers all 27 models in `conf/benchmark.yaml`.
+  - **`scripts/QUESTIONNAIRE_TOKEN_COUNTS.md`**: Token counts per questionnaire (input/output) by tokenizer, used as reference for cost scripts.
+  - **`scripts/PRICING_REFERENCE.md`**: Pricing reference ($/1M input/output) and cost formula for official providers and OpenRouter.
+  - **`scripts/BENCHMARK_COST_77_RUNS.md`**: Per-model cost table and total estimate for 77 runs; includes reasoning/thinking-token add-on for reasoning-capable models.
+  - **`scripts/POWER_ANALYSIS_BFI_CROWD.md`**: Power analysis for BFI model-vs-crowd comparison (n₁ runs, n₂ models); recommends ~77 runs for d ≈ 0.8, α = 0.01, 80% power.
+- **OpenRouter support**: `allowed_providers` in `conf/config.yaml` now includes `openrouter`. Benchmark config adds OpenRouter models (DeepSeek, Moonshot/Kimi, Meta Llama, Qwen) with tokenizer-matched token counts and pricing.
+- **Benchmark model list expansion**: `conf/benchmark.yaml` expanded to 27 models (direct: Anthropic, Gemini, OpenAI; OpenRouter: DeepSeek, Kimi, Llama, Qwen). Uses specific model versions/datestamps for reproducibility. Pricing reference linked in config comment.
+- **Dependencies**: Added `tiktoken`, `google-genai`, `python-dotenv`, and `transformers` to `pyproject.toml` for token counting scripts (tiktoken for OpenAI; google-genai for Gemini count API; transformers for HF tokenizers).
 - **`max_parse_failure_retries` config option**: New setting (default: `3`) that bounds the retry loop in `example_generator` when LLM response parsing fails (e.g. wrong number of scores returned). Previously the loop was infinite (`while True`), which could hang forever if a model consistently returned unparseable output. Set to `0` to disable retries (fail on first parse error). Configurable via CLI (`max_parse_failure_retries=5`) or `conf/config.yaml`. When retries are exhausted the column is skipped with an error log and the run continues.
 
 ### Changed
